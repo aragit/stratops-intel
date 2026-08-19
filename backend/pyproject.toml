@@ -1,0 +1,118 @@
+[build-system]
+requires = ["setuptools>=69.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stratops-intel-backend"
+version = "0.1.0"
+description = "StratOps Intel Backend - Competitive Intelligence Platform"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "StratOps Team" }
+]
+
+[project.dependencies]
+fastapi = ">=0.109.0"
+uvicorn = { extras = ["standard"], version = ">=0.27.0" }
+pydantic = ">=2.9.0"
+pydantic-settings = ">=2.1.0"
+pyjwt = ">=2.8.0"
+bcrypt = ">=4.1.0"
+slowapi = ">=0.1.8"
+tenacity = ">=8.2.0"
+redis = ">=5.0.0"
+langgraph = ">=0.2.0"
+langchain-core = ">=0.3.0"
+langchain-openai = ">=0.2.0"
+instructor = ">=1.5.0"
+litellm = ">=1.48.0"
+asyncpg = ">=0.29.0"
+sqlalchemy = { extras = ["asyncio"], version = ">=2.0.0" }
+alembic = ">=1.13.0"
+neo4j = ">=5.24.0"
+aiobotocore = ">=2.14.0"
+beautifulsoup4 = ">=4.12.0"
+xmltodict = ">=0.13.0"
+feedparser = ">=6.0.0"
+playwright = ">=1.40.0"
+structlog = ">=24.1.0"
+prometheus-client = ">=0.20.0"
+opentelemetry-api = ">=1.24.0"
+opentelemetry-sdk = ">=1.24.0"
+opentelemetry-instrumentation-fastapi = ">=0.45b0"
+opentelemetry-instrumentation-sqlalchemy = ">=0.45b0"
+httpx = ">=0.26.0"
+networkx = ">=3.2.0"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=5.0.0",
+    "testcontainers>=4.8.0",
+    "factory-boy>=3.3.0",
+    "faker>=28.0.0",
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["alembic/versions"]
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "N",
+    "UP",
+    "B",
+    "C4",
+]
+ignore = [
+    "E501",
+    "B008",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+strict_optional = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[tool.coverage.run]
+source = ["."]
+omit = ["tests/*", "alembic/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

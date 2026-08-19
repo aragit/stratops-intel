@@ -1,0 +1,15 @@
+services:
+  - name: stratops-intel-bentoml
+    description: "StratOps Intel BentoML inference services"
+    labels:
+      project: "stratops-intel"
+    include:
+      - ./services/
+      - ./models/
+      - ./composed/
+    python:
+      packages:
+        - bentoml>=1.3.0
+        - vllm>=0.4.0
+        - pydantic>=2.9.0
+        - structlog>=24.1.0
