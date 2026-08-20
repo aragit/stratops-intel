@@ -14,37 +14,39 @@ authors = [
 ]
 
 [project.dependencies]
-fastapi = ">=0.109.0"
-uvicorn = { extras = ["standard"], version = ">=0.27.0" }
-pydantic = ">=2.9.0"
-pydantic-settings = ">=2.1.0"
-pyjwt = ">=2.8.0"
-bcrypt = ">=4.1.0"
-slowapi = ">=0.1.8"
-tenacity = ">=8.2.0"
-redis = ">=5.0.0"
-langgraph = ">=0.2.0"
-langchain-core = ">=0.3.0"
-langchain-openai = ">=0.2.0"
-instructor = ">=1.5.0"
-litellm = ">=1.48.0"
-asyncpg = ">=0.29.0"
-sqlalchemy = { extras = ["asyncio"], version = ">=2.0.0" }
-alembic = ">=1.13.0"
-neo4j = ">=5.24.0"
-aiobotocore = ">=2.14.0"
-beautifulsoup4 = ">=4.12.0"
-xmltodict = ">=0.13.0"
-feedparser = ">=6.0.0"
-playwright = ">=1.40.0"
-structlog = ">=24.1.0"
-prometheus-client = ">=0.20.0"
-opentelemetry-api = ">=1.24.0"
-opentelemetry-sdk = ">=1.24.0"
-opentelemetry-instrumentation-fastapi = ">=0.45b0"
-opentelemetry-instrumentation-sqlalchemy = ">=0.45b0"
-httpx = ">=0.26.0"
-networkx = ">=3.2.0"
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.1.0",
+    "pyjwt>=2.8.0",
+    "bcrypt>=4.1.0",
+    "slowapi>=0.1.8",
+    "tenacity>=8.2.0",
+    "redis>=5.0.0",
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "instructor>=1.5.0",
+    "litellm>=1.48.0",
+    "asyncpg>=0.29.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "alembic>=1.13.0",
+    "neo4j>=5.24.0",
+    "aiobotocore>=2.14.0",
+    "beautifulsoup4>=4.12.0",
+    "xmltodict>=0.13.0",
+    "feedparser>=6.0.0",
+    "playwright>=1.40.0",
+    "structlog>=24.1.0",
+    "prometheus-client>=0.20.0",
+    "opentelemetry-api>=1.24.0",
+    "opentelemetry-sdk>=1.24.0",
+    "opentelemetry-instrumentation-fastapi>=0.45b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.45b0",
+    "httpx>=0.26.0",
+    "networkx>=3.2.0",
+]
 
 [project.optional-dependencies]
 dev = [
