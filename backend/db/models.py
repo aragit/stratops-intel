@@ -243,3 +243,56 @@ class TenantConfig(Base):
 
     def __repr__(self) -> str:
         return f"<TenantConfig(id={self.id}, tenant_id={self.tenant_id})>"
+
+
+class Signal(Base):
+    """Signal model for ingested structured data.
+
+    Represents a normalized signal from any source adapter. Raw content
+    is stored in MinIO/S3 (pointer-only), while structured metadata and
+    fingerprints are stored in PostgreSQL with RLS enforcement.
+
+    Table: signals
+    """
+
+    __tablename__ = "signals"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+        server_default=func.gen_random_uuid(),
+    )
+    tenant_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    source_url: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
+    content_uri: Mapped[str] = mapped_column(String(500), nullable=False)
+    fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    structured_payload: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'")
+    )
+    collected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    meta: Mapped[dict[str, Any]] = mapped_column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    tenant: Mapped["Tenant"] = relationship("Tenant", lazy="selectin")
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "fingerprint", name="uq_signals_tenant_fingerprint"),
+        Index("ix_signals_tenant_id", "tenant_id"),
+        Index("ix_signals_source_type", "source_type"),
+        Index("ix_signals_collected_at", "collected_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<Signal(id={self.id}, source_type={self.source_type!r}, tenant_id={self.tenant_id})>"

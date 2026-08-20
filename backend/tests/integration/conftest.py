@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from typing import AsyncGenerator, Generator
+from typing import Any, AsyncGenerator, Generator
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
@@ -23,6 +23,18 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+# Lazy import for aiobotocore to avoid OpenSSL conflicts
+def _get_aiobotocore():
+    try:
+        import aiobotocore.session
+        return aiobotocore.session, True
+    except (ImportError, AttributeError) as e:
+        if "GEN_EMAIL" in str(e):
+            return None, False
+        return None, False
+
+AIOBOTOCORE_AVAILABLE = False
+
 try:
     from testcontainers.community.postgres import PostgresContainer
 except ImportError:
@@ -32,6 +44,11 @@ try:
     from testcontainers.community.redis import RedisContainer
 except ImportError:
     from testcontainers.redis import RedisContainer
+
+try:
+    from testcontainers.minio import MinioContainer
+except ImportError:
+    MinioContainer = None
 
 from db.models import APIKey, Base, Tenant, User
 from db.tenant_session import TenantSessionManager, _session_manager
@@ -51,6 +68,21 @@ def redis_container() -> Generator[RedisContainer, None, None]:
     """Start a Redis testcontainer for integration tests."""
     with RedisContainer("redis:7-alpine") as redis_c:
         yield redis_c
+
+
+@pytest.fixture(scope="module")
+def minio_container() -> Generator[MinioContainer, None, None]:
+    """Start a MinIO testcontainer for integration tests."""
+    if MinioContainer is None:
+        pytest.skip("testcontainers-minio not installed")
+    container = MinioContainer(
+        image="minio/minio:latest",
+        access_key="minioadmin",
+        secret_key="minioadmin",
+    )
+    container.start()
+    yield container
+    container.stop()
 
 
 def _to_asyncpg_url(database_url: str) -> str:
@@ -159,6 +191,55 @@ async def integration_redis(redis_container: RedisContainer) -> AsyncGenerator[a
         await client.aclose()
     except RuntimeError:
         pass  # Event loop may be closed during module-scoped teardown
+
+
+@pytest.fixture(scope="module")
+def minio_container() -> Generator[MinioContainer, None, None]:
+    """Start a MinIO testcontainer for integration tests."""
+    if MinioContainer is None:
+        pytest.skip("testcontainers-minio not installed")
+    container = MinioContainer(
+        image="minio/minio:latest",
+        access_key="minioadmin",
+        secret_key="minioadmin",
+    )
+    container.start()
+    yield container
+    container.stop()
+
+
+@pytest.fixture(scope="module")
+async def s3_client(minio_container) -> AsyncGenerator[Any, None]:
+    """Create an async S3 client pointing to the test MinIO container."""
+    # Lazy import to avoid OpenSSL conflict at module load time
+    def _get_aiobotocore_session():
+        try:
+            import aiobotocore.session
+            return aiobotocore.session, True
+        except (ImportError, AttributeError) as e:
+            if "GEN_EMAIL" in str(e):
+                pytest.skip("aiobotocore OpenSSL conflict in test environment (known issue)")
+            raise
+
+    aiobotocore_session, available = _get_aiobotocore_session()
+    if not available:
+        pytest.skip("aiobotocore not available")
+
+    endpoint = f"http://{minio_container.get_container_host_ip()}:{minio_container.get_exposed_port(9000)}"
+    session = aiobotocore_session.get_session()
+    try:
+        async with session.create_client(
+            "s3",
+            endpoint_url=endpoint,
+            aws_access_key_id="minioadmin",
+            aws_secret_access_key="minioadmin",
+            region_name="us-east-1",
+        ) as client:
+            yield client
+    except AttributeError as e:
+        if "GEN_EMAIL" in str(e):
+            pytest.skip("aiobotocore OpenSSL conflict in test environment (known issue)")
+        raise
 
 
 @pytest.fixture

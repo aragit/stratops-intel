@@ -1,16 +1,41 @@
+[project]
+name = "stratops-extraction"
+version = "0.1.0"
+description = "BentoML extraction service using vLLM for competitive intelligence"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "bentoml>=1.3.0",
+    "vllm>=0.6.0",
+    "torch>=2.4.0",
+    "transformers>=4.44.0",
+    "accelerate>=0.33.0",
+    "autoawq>=0.2.0",
+    "pydantic>=2.9.0",
+    "structlog>=24.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-mock>=3.12.0",
+    "httpx>=0.27.0",
+]
+
 [build-system]
-requires = ["setuptools>=69.0.0", "wheel"]
+requires = ["setuptools>=68.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
-[project]
-name = "stratops-intel-bentoml"
-version = "0.1.0"
-description = "BentoML inference services for StratOps Intel"
-requires-python = ">=3.11"
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
 
-[project.dependencies]
-bentoml = ">=1.3.0"
-vllm = ">=0.4.0"
-pydantic = ">=2.9.0"
-structlog = ">=24.1.0"
-pyyaml = ">=6.0.1"
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+select = ["E", "F", "I", "W", "UP", "B", "C4", "SIM", "T20"]
+ignore = ["S101", "S311"]
