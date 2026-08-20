@@ -19,6 +19,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
     text,
+    desc,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -346,7 +347,7 @@ class BriefingModel(Base):
         UniqueConstraint("tenant_id", "title", "version", name="uq_briefings_tenant_title_version"),
         Index("ix_briefings_tenant_id", "tenant_id"),
         Index("ix_briefings_tenant_id_is_current", "tenant_id", "is_current"),
-        Index("ix_briefings_tenant_id_created_at_desc", "tenant_id", "created_at".desc()),
+        Index("ix_briefings_tenant_id_created_at_desc", "tenant_id", desc("created_at")),
     )
 
     def __repr__(self) -> str:
