@@ -310,10 +310,10 @@ class TestBriefingComposerNode:
     ) -> None:
         """Full call test - verify pointer-only state."""
         # Mock MinIO download for intelligence
-        mock_minio_client.download.side_effect = [json.dumps(v) for v in {
-            "s3://corr": {"correlations": [{"entity_a": {"name": "A"}, "entity_b": {"name": "B"}, "correlation_type": "pricing", "strength": 0.8}]},
-            "s3://trend": {"trends": [{"entity_name": "Test", "trend_type": "pricing", "direction": "up", "z_score": 2.0, "confidence": 0.8}]},
-        }.values())
+        mock_minio_client.download.side_effect = [json.dumps(v) for v in [
+            {"correlations": [{"entity_a": {"name": "A"}, "entity_b": {"name": "B"}, "correlation_type": "pricing", "strength": 0.8}]},
+            {"trends": [{"entity_name": "Test", "trend_type": "pricing", "direction": "up", "z_score": 2.0, "confidence": 0.8}]},
+        ]]
 
         result = await composer(sample_state)
 

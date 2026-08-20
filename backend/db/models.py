@@ -328,7 +328,7 @@ class BriefingModel(Base):
     generated_by: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSON, nullable=True
     )
-    metadata: Mapped[Optional[dict[str, Any]]] = mapped_column(
+    briefing_metadata: Mapped[Optional[dict[str, Any]]] = mapped_column(
         JSON, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
