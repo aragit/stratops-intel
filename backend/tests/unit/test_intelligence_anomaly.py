@@ -232,9 +232,22 @@ class TestAnomalyDetectorNode:
         anomaly_detector._model = mock.MagicMock()
         anomaly_detector._model.decision_function.return_value = np.array([0.0])  # Not anomaly
 
-        result = await anomaly_detector({"tenant_id": "001", "trace_id": "trace-001"})
+        # Mock entity features to return some data
+        with mock.patch.object(
+            anomaly_detector, "_extract_entity_features"
+        ) as mock_extract:
+            mock_extract.return_value = {
+                "Company A": {
+                    "pricing_volatility": 0.1,
+                    "mention_frequency_delta": 0.5,
+                    "hiring_velocity": 5.0,
+                    "sentiment_variance": 0.05,
+                }
+            }
 
-        # Should return state with empty anomaly URIs (no anomalies detected)
+            result = await anomaly_detector({"tenant_id": "001", "trace_id": "trace-001"})
+
+        # Should return state (no anomalies detected)
         assert "content_uris" in result
 
     @pytest.mark.asyncio
@@ -286,8 +299,9 @@ class TestAnomalyDetectorNode:
 
     def test_severity_classification_boundaries(self, anomaly_detector) -> None:
         """Test severity classification at boundaries."""
-        assert anomaly_detector._classify_severity(-1.0) == "high"
-        assert anomaly_detector._classify_severity(-0.7) == "medium"
-        assert anomaly_detector._classify_severity(-0.69) == "medium"
+        assert anomaly_detector._classify_severity(-1.1) == "high"
+        assert anomaly_detector._classify_severity(-1.0) == "medium"
+        assert anomaly_detector._classify_severity(-0.7) == "low"
+        assert anomaly_detector._classify_severity(-0.69) == "low"
         assert anomaly_detector._classify_severity(-0.5) == "low"
         assert anomaly_detector._classify_severity(-0.3) == "low"

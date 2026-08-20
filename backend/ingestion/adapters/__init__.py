@@ -5,14 +5,14 @@ from __future__ import annotations
 # Lazy import to avoid OpenSSL conflicts
 def _register_adapters():
     try:
-        from ingestion.adapters import web  # noqa: F401
-        from ingestion.adapters import sec  # noqa: F401
+        from backend.ingestion.adapters import web  # noqa: F401
+        from backend.ingestion.adapters import sec  # noqa: F401
     except Exception:
         pass
 
 _register_adapters()
 
-from ingestion.base import (
+from backend.ingestion.base import (
     AdapterNotFoundError,
     AdapterRegistrationError,
     AdapterRegistry,

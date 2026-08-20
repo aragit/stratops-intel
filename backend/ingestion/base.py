@@ -17,6 +17,16 @@ from pydantic import BaseModel, ConfigDict, Field
 logger = structlog.get_logger(__name__)
 
 
+class SourceConfig(BaseModel):
+    """Base configuration class for source adapters.
+
+    Each adapter subclass should define its own config schema
+    inheriting from this base class.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class AdapterNotFoundError(KeyError):
     """Raised when an adapter is not found in the registry."""
 

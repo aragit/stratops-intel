@@ -217,10 +217,11 @@ class TestBriefingComposerNode:
 
         md = composer._format_correlations(correlations)
 
-        assert "A ↔ B" in md
+        # The output uses Unicode arrow (U+2194) within markdown bold
+        assert "**A** \u2194 **B**" in md
         assert "pricing" in md
         assert "0.80" in md
-        assert "C ↔ D" in md
+        assert "**C** \u2194 **D**" in md
 
     def test_format_trends(self, composer) -> None:
         """Test trend formatting."""
@@ -264,12 +265,31 @@ class TestBriefingComposerNode:
             )
         ]
 
+        # Mock the narrative client post response
+        class MockResponse:
+            status_code = 200
+            def json(self):
+                return {
+                    "narrative": "# Executive Brief\n\nApple reported record revenue of $94.8B driven by iPhone and services.\n\nKey developments:\n- iPhone 15 demand strong\n- Services revenue growing\n- Guidance conservative\n\nRecommended actions:\n- Monitor iPhone demand in China\n- Invest in AI services",
+                    "key_takeaways": [
+                        "Apple reported record $94.8B revenue",
+                        "iPhone and services driving growth",
+                        "Conservative guidance for next quarter"
+                    ],
+                    "confidence": 0.85,
+                    "model": "test-model"
+                }
+
+        mock_narrative_client.post.return_value = MockResponse()
+
         summary = await composer._generate_executive_summary(sections, "001", "trace-001")
 
         assert summary is not None
         assert summary.section_type == "executive_summary"
-        assert "Apple reported strong quarterly results" in summary.content
+        assert "Apple reported record $94.8B revenue" in summary.content
         assert summary.confidence == 0.85
+
+    @pytest.mark.asyncio
 
     @pytest.mark.asyncio
     async def test_generate_executive_summary_failure(self, composer, mock_narrative_client) -> None:

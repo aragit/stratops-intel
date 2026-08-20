@@ -18,7 +18,7 @@ import structlog
 from sqlalchemy import select
 
 # Import from ingestion base
-from ingestion.base import (
+from backend.ingestion.base import (
     AdapterNotFoundError,
     AdapterRegistry,
     IngestionResult,

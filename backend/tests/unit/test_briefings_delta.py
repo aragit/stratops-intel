@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime
 from unittest import mock
 
 import pytest
 
-from backend.briefings.delta import (
+from backend.intelligence.agents.delta import (
     BriefingDelta,
     BriefingDeltaGenerator,
     BriefingDeltaWorker,
@@ -185,26 +186,35 @@ class TestBriefingDeltaGenerator:
             BriefingDeltaGenerator, "_build_sections_from_state",
             return_value=[]
         ):
-            delta = await generator.generate_delta(current_briefing, {})
+            delta = await generator.generate_delta(current_briefing, {"content_uris": []})
 
         assert delta is None
 
     @pytest.mark.asyncio
     async def test_generate_delta_append(self, generator, current_briefing):
         """Test append delta type."""
+        from backend.intelligence.agents.composer import BriefingSection
         new_sections = [
-            {
-                "section_type": "anomaly_alerts",
-                "title": "Anomaly Alerts",
-                "content": "New anomaly detected",
-                "source_uris": ["s3://anomaly-1"],
-                "confidence": 0.9,
-            }
+            BriefingSection(
+                section_type="anomaly_alerts",
+                title="Anomaly Alerts",
+                content="New anomaly detected",
+                source_uris=["s3://anomaly-1"],
+                confidence=0.9,
+            )
         ]
 
         with mock.patch.object(
             BriefingDeltaGenerator, "_build_sections_from_state",
-            return_value=new_sections
+            return_value=[
+                BriefingSection(
+                    section_type="anomaly_alerts",
+                    title="Anomaly Alerts",
+                    content="New anomaly detected",
+                    source_uris=["s3://anomaly-1"],
+                    confidence=0.9,
+                )
+            ]
         ):
             with mock.patch.object(generator, "_write_delta_to_minio", new_callable=mock.AsyncMock) as mock_write:
                 mock_write.return_value = "s3://delta.json"
@@ -212,17 +222,15 @@ class TestBriefingDeltaGenerator:
                 delta = await generator.generate_delta(
                     mock.MagicMock(
                         id="briefing-123",
-                        tenant_id="001",
                         title="Test Briefing",
                         sections=[
                             mock.MagicMock(section_type="executive_summary"),
                             mock.MagicMock(section_type="trend_analysis"),
                         ],
                         tenant_id="001",
-                        title="Test",
                         version=1,
                     ),
-                    {},
+                    {"content_uris": []},
                 )
 
         assert delta is not None
@@ -231,14 +239,15 @@ class TestBriefingDeltaGenerator:
 
     def test_compare_sections_append(self, generator):
         """Test append delta type detection."""
+        from backend.intelligence.agents.composer import BriefingSection
         current = [
-            {"section_type": "executive_summary", "title": "Summary"},
-            {"section_type": "trend_analysis", "title": "Trends"},
+            BriefingSection(section_type="executive_summary", title="Summary", content="Same"),
+            BriefingSection(section_type="trend_analysis", title="Trends", content="Same"),
         ]
         new = [
-            {"section_type": "executive_summary", "title": "Summary", "content": "Same"},
-            {"section_type": "trend_analysis", "title": "Trends", "content": "Same"},
-            {"section_type": "anomaly_alerts", "title": "Anomalies", "content": "New"},
+            BriefingSection(section_type="executive_summary", title="Summary", content="Same"),
+            BriefingSection(section_type="trend_analysis", title="Trends", content="Same"),
+            BriefingSection(section_type="anomaly_alerts", title="Anomalies", content="New"),
         ]
 
         result = generator._compare_sections(current, new)
@@ -249,11 +258,12 @@ class TestBriefingDeltaGenerator:
 
     def test_compare_sections_replace_section(self, generator):
         """Test replace_section delta type detection."""
+        from backend.intelligence.agents.composer import BriefingSection
         current = [
-            {"section_type": "trend_analysis", "title": "Trends", "content": "Old content"},
+            BriefingSection(section_type="trend_analysis", title="Trends", content="Old content"),
         ]
         new = [
-            {"section_type": "trend_analysis", "title": "Trends", "content": "New content"},
+            BriefingSection(section_type="trend_analysis", title="Trends", content="New content"),
         ]
 
         result = generator._compare_sections(current, new)
@@ -263,17 +273,18 @@ class TestBriefingDeltaGenerator:
 
     def test_compare_sections_full_regeneration_threshold(self, generator):
         """Test full_regeneration when >50% sections changed."""
+        from backend.intelligence.agents.composer import BriefingSection
         current = [
-            {"section_type": "a", "title": "A"},
-            {"section_type": "b", "title": "B"},
-            {"section_type": "c", "title": "C"},
-            {"section_type": "d", "title": "D"},
+            BriefingSection(section_type="a", title="A", content="A"),
+            BriefingSection(section_type="b", title="B", content="B"),
+            BriefingSection(section_type="c", title="C", content="C"),
+            BriefingSection(section_type="d", title="D", content="D"),
         ]
         new = [
-            {"section_type": "a", "title": "A", "content": "New A"},
-            {"section_type": "b", "title": "B", "content": "New B"},
-            {"section_type": "e", "title": "E"},
-            {"section_type": "f", "title": "F"},
+            BriefingSection(section_type="a", title="A", content="New A"),
+            BriefingSection(section_type="b", title="B", content="New B"),
+            BriefingSection(section_type="e", title="E", content="E"),
+            BriefingSection(section_type="f", title="F", content="F"),
         ]
 
         result = generator._compare_sections(current, new)
@@ -283,14 +294,15 @@ class TestBriefingDeltaGenerator:
 
     def test_compare_sections_anomaly_regen(self, generator):
         """Test full_regeneration when 3+ new anomalies."""
+        from backend.intelligence.agents.composer import BriefingSection
         current = [
-            {"section_type": "executive_summary", "title": "Summary"},
+            BriefingSection(section_type="executive_summary", title="Summary", content="Same"),
         ]
         new = [
-            {"section_type": "executive_summary", "title": "Summary", "content": "Same"},
-            {"section_type": "anomaly_alerts", "title": "Anomaly 1", "content": "Anomaly 1"},
-            {"section_type": "anomaly_alerts", "title": "Anomaly 2", "content": "Anomaly 2"},
-            {"section_type": "anomaly_alerts", "title": "Anomaly 3", "content": "Anomaly 3"},
+            BriefingSection(section_type="executive_summary", title="Summary", content="Same"),
+            BriefingSection(section_type="anomaly_alerts", title="Anomaly 1", content="Anomaly 1"),
+            BriefingSection(section_type="anomaly_alerts", title="Anomaly 2", content="Anomaly 2"),
+            BriefingSection(section_type="anomaly_alerts", title="Anomaly 3", content="Anomaly 3"),
         ]
 
         result = generator._compare_sections(current, new)
@@ -300,42 +312,36 @@ class TestBriefingDeltaGenerator:
 
     def test_generate_summary_append(self, generator):
         """Test summary generation for append."""
-        delta = {
-            "type": "append",
-            "sections_added": [{"title": "Anomaly Alerts"}],
-            "sections_updated": [],
-            "sections_removed": [],
-        }
-
-        summary = generator._generate_summary(delta)
+        summary = generator._generate_summary(
+            delta_type="append",
+            sections_added=[{"title": "Anomaly Alerts"}],
+            sections_updated=[],
+            sections_removed=[],
+        )
 
         assert "append" in summary.lower() or "added" in summary.lower()
         assert "Anomaly Alerts" in summary
 
     def test_generate_summary_replace(self, generator):
         """Test summary for replace_section."""
-        delta = {
-            "type": "replace_section",
-            "sections_added": [],
-            "sections_updated": [{"title": "Trend Analysis"}],
-            "sections_removed": [],
-        }
-
-        summary = generator._generate_summary(delta)
+        summary = generator._generate_summary(
+            delta_type="replace_section",
+            sections_added=[],
+            sections_updated=[{"title": "Trend Analysis"}],
+            sections_removed=[],
+        )
 
         assert "replace" in summary.lower() or "updated" in summary.lower()
         assert "Trend Analysis" in summary
 
     def test_generate_summary_full_regeneration(self, generator):
         """Test summary for full_regeneration."""
-        delta = {
-            "type": "full_regeneration",
-            "sections_added": [],
-            "sections_updated": [],
-            "sections_removed": [],
-        }
-
-        summary = generator._generate_summary(delta)
+        summary = generator._generate_summary(
+            delta_type="full_regeneration",
+            sections_added=[],
+            sections_updated=[],
+            sections_removed=[],
+        )
 
         assert "regenerated" in summary.lower() or "significant" in summary.lower()
 

@@ -5,7 +5,7 @@ Exports the SourceAdapter protocol, AdapterRegistry, and core ingestion types.
 
 from __future__ import annotations
 
-from ingestion.base import (
+from backend.ingestion.base import (
     AdapterNotFoundError,
     AdapterRegistrationError,
     AdapterRegistry,
