@@ -1,18 +1,25 @@
 """Async database session factory with tenant context management.
 
 This module provides tenant-aware SQLAlchemy session factories that enforce
-PostgreSQL Row-Level Security (RLS) by setting the `app.current_tenant`
+PostgreSQL Row-Level Security (RLS) by setting the ``app.current_tenant``
 session variable on each connection.
+
+The primary entry point is :class:`TenantSessionManager`, which manages an
+async engine and connection pool.  Module-level convenience functions are
+retained for backward compatibility and delegate to a global singleton.
 """
+
+from __future__ import annotations
 
 import contextvars
 import os
+import time
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Optional
 from uuid import UUID
 
 import structlog
-from sqlalchemy import event, text
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -32,12 +39,15 @@ _current_tenant_id: contextvars.ContextVar[Optional[UUID]] = contextvars.Context
 
 _default_tenant_uuid = UUID("00000000-0000-0000-0000-000000000000")
 
-_admin_engine: Optional[AsyncEngine] = None
-_session_maker: Optional[async_sessionmaker[AsyncSession]] = None
+_session_manager: Optional["TenantSessionManager"] = None
 
 
 def _get_database_url() -> str:
-    """Get the database URL from environment variables."""
+    """Get the database URL from environment variables.
+
+    Returns:
+        A SQLAlchemy-compatible async database URL.
+    """
     database_url = os.getenv(
         "DATABASE_URL",
         "postgresql+asyncpg://stratops:stratops_dev_password@localhost:5432/stratops",
@@ -47,251 +57,306 @@ def _get_database_url() -> str:
     return database_url
 
 
-def _create_engine(echo: Optional[bool] = None) -> AsyncEngine:
-    """Create an async PostgreSQL engine.
+def get_database_url() -> str:
+    """Get the current database URL (public alias)."""
+    return _get_database_url()
 
-    Args:
-        echo: Whether to log SQL statements. If None, uses ENVIRONMENT env var.
 
-    Returns:
-        Configured AsyncEngine instance.
+def _is_testing() -> bool:
+    """Return True when running under the test suite."""
+    return os.getenv("TESTING", "false").lower() == "true"
+
+
+class TenantSessionManager:
+    """Manages an async PostgreSQL engine with per-tenant RLS context injection.
+
+    Each call to :meth:`get_session` optionally sets the ``app.current_tenant``
+    PostgreSQL session variable so that RLS policies transparently scope queries
+    to the calling tenant.
+
+    Attributes:
+        database_url: The async database URL.
+        pool_size: Number of connections to maintain in the pool.
+        max_overflow: Maximum number of overflow connections.
     """
-    if echo is None:
-        echo = os.getenv("ENVIRONMENT", "development").lower() == "development"
 
-    database_url = _get_database_url()
+    def __init__(self, database_url: str, pool_size: int = 20, max_overflow: int = 10) -> None:
+        """Initialise the manager (does not connect yet).
 
-    engine_kwargs: dict = {
-        "echo": echo,
-        "future": True,
-        "connect_args": {
-            "server_settings": {
-                "application_name": "stratops-intel",
-                "jit": "off",
+        Args:
+            database_url: A SQLAlchemy async connection string.
+            pool_size: Base pool size (default 20).
+            max_overflow: Maximum overflow connections (default 10).
+        """
+        self._database_url = database_url
+        self._pool_size = pool_size
+        self._max_overflow = max_overflow
+        self._engine: Optional[AsyncEngine] = None
+        self._session_maker: Optional[async_sessionmaker[AsyncSession]] = None
+        self._initialized: bool = False
+
+    async def connect(self) -> None:
+        """Create the async engine and session maker.
+
+        Must be called once before any session is requested.  Idempotent:
+        a second call is a no-op.
+        """
+        if self._engine is not None:
+            logger.warning("engine_already_initialized")
+            return
+
+        engine_kwargs: dict[str, Any] = {
+            "echo": os.getenv("ENVIRONMENT", "development").lower() == "development",
+            "future": True,
+            "connect_args": {
+                "server_settings": {
+                    "application_name": "stratops-intel",
+                    "jit": "off",
+                },
+                "command_timeout": 60,
             },
-            "command_timeout": 60,
-        },
-        "pool_size": 10,
-        "max_overflow": 20,
-        "pool_timeout": 30,
-        "pool_recycle": 3600,
-    }
+        }
 
-    use_null_pool = os.getenv("TESTING", "false").lower() == "true"
-    if use_null_pool:
-        engine_kwargs["poolclass"] = NullPool
+        if _is_testing():
+            engine_kwargs["poolclass"] = NullPool
+        else:
+            engine_kwargs["pool_size"] = self._pool_size
+            engine_kwargs["max_overflow"] = self._max_overflow
+            engine_kwargs["pool_pre_ping"] = True
+            engine_kwargs["pool_recycle"] = 3600
+            engine_kwargs["pool_timeout"] = 30
 
-    engine = create_async_engine(database_url, **engine_kwargs)
-    logger.info("engine_created", database_url=database_url.split("@")[-1])
-    return engine
+        self._engine = create_async_engine(self._database_url, **engine_kwargs)
+        self._session_maker = async_sessionmaker(
+            bind=self._engine,
+            class_=AsyncSession,
+            expire_on_commit=False,
+            autoflush=False,
+            autocommit=False,
+        )
+        self._initialized = True
 
+        logger.info(
+            "engine_created",
+            database_url=self._database_url.split("@")[-1],
+            pool_size=self._pool_size,
+            max_overflow=self._max_overflow,
+        )
 
-def _setup_rls_listener(engine: AsyncEngine) -> None:
-    """Attach event listeners to set tenant context on connections.
+    async def dispose(self) -> None:
+        """Dispose the engine and release all pooled connections."""
+        if self._engine is not None:
+            await self._engine.dispose()
+            self._engine = None
+            self._session_maker = None
+            self._initialized = False
+            logger.info("engine_disposed")
 
-    This sets the `app.current_tenant` PostgreSQL session variable
-    on every new connection based on the context var.
-    """
+    @property
+    def engine(self) -> AsyncEngine:
+        """Return the underlying async engine (raises if not connected)."""
+        if self._engine is None:
+            raise RuntimeError("Session manager not initialized. Call connect() first.")
+        return self._engine
 
-    @event.listens_for(engine.sync_engine, "connect")
-    def _set_tenant_on_connect(dbapi_connection, connection_record: object) -> None:
-        """Set app.current_tenant on connect using dbapi cursor."""
-        cursor = dbapi_connection.cursor()
-        tenant_id = _current_tenant_id.get()
-        if tenant_id is not None:
-            try:
-                cursor.execute("SELECT set_tenant_context(%s)", (str(tenant_id),))
-            except Exception:
-                cursor.execute("SET LOCAL app.current_tenant = %s", (str(tenant_id),))
-        cursor.close()
+    @property
+    def is_connected(self) -> bool:
+        """Return whether the engine has been created."""
+        return self._engine is not None
 
-    @event.listens_for(engine.sync_engine, "checkout")
-    def _set_tenant_on_checkout(
-        dbapi_connection, connection_record: object, connection_proxy: object
-    ) -> None:
-        """Set app.current_tenant on connection checkout."""
-        cursor = dbapi_connection.cursor()
-        tenant_id = _current_tenant_id.get()
-        if tenant_id is not None:
-            try:
-                cursor.execute("SELECT set_tenant_context(%s)", (str(tenant_id),))
-            except Exception:
-                cursor.execute("SET LOCAL app.current_tenant = %s", (str(tenant_id),))
-        cursor.close()
+    def _pool_stats(self) -> str:
+        """Best-effort retrieval of pool status string."""
+        if self._engine is None:
+            return "disconnected"
+        pool = self._engine.pool
+        try:
+            return pool.status()
+        except (AttributeError, NotImplementedError):
+            return f"pool_class={type(pool).__name__}"
 
+    @asynccontextmanager
+    async def get_session(
+        self, tenant_id: UUID | None = None
+    ) -> AsyncGenerator[AsyncSession, None]:
+        """Yield a tenant-aware :class:`AsyncSession`.
 
-def _initialize_session_maker(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
-    """Create an async session maker bound to the given engine.
+        When *tenant_id* is provided the ``app.current_tenant`` session
+        variable is set via :meth:`set_tenant_context`, enabling RLS
+        row-level filtering for all subsequent queries in this session.
 
-    Args:
-        engine: The async engine to bind sessions to.
+        Args:
+            tenant_id: The tenant UUID to scope the session to.  When
+                ``None`` no tenant context is injected (the caller is
+                responsible for any RLS requirements).
 
-    Returns:
-        Configured async_sessionmaker instance.
-    """
-    return async_sessionmaker(
-        bind=engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-        autoflush=False,
-        autocommit=False,
-    )
+        Yields:
+            An :class:`AsyncSession` with the tenant context configured.
 
+        Raises:
+            RuntimeError: If :meth:`connect` has not been called.
+        """
+        if not self._initialized or self._session_maker is None:
+            raise RuntimeError("Session manager not initialized. Call connect() first.")
 
-async def _set_tenant_context_on_session(session: AsyncSession, tenant_id: UUID) -> None:
-    """Set the tenant context variable on a database session.
+        start = time.monotonic()
 
-    Args:
-        session: The async session to configure.
-        tenant_id: The tenant ID to set for RLS context.
-    """
-    try:
-        await session.execute(
-            text("SELECT set_tenant_context(:tenant_id)"),
+        try:
+            async with self._session_maker() as session:
+                if tenant_id is not None:
+                    await self.set_tenant_context(session, tenant_id)
+
+                pool_stats = self._pool_stats()
+                logger.debug(
+                    "session_acquired",
+                    tenant_id=str(tenant_id),
+                    pool_stats=pool_stats,
+                )
+
+                try:
+                    yield session
+                except SQLAlchemyError as exc:
+                    await session.rollback()
+                    logger.error(
+                        "session_error",
+                        error=str(exc),
+                        tenant_id=str(tenant_id),
+                    )
+                    raise
+                finally:
+                    await session.close()
+                    elapsed_ms = round((time.monotonic() - start) * 1000, 2)
+                    logger.debug(
+                        "session_released",
+                        tenant_id=str(tenant_id),
+                        duration_ms=elapsed_ms,
+                    )
+        except RuntimeError:
+            raise
+        except Exception:
+            logger.exception(
+                "session_acquisition_failed",
+                tenant_id=str(tenant_id),
+                pool_stats=self._pool_stats(),
+            )
+            raise
+
+    async def set_tenant_context(self, conn: Any, tenant_id: UUID) -> None:
+        """Set the ``app.current_tenant`` PostgreSQL session variable.
+
+        Executes ``SELECT set_config('app.current_tenant', :tenant_id, false)``
+        so that RLS policies referencing ``current_setting('app.current_tenant')``
+        are scoped to *tenant_id*.
+
+        Args:
+            conn: An :class:`AsyncSession` or :class:`Connection` capable of
+                executing SQL.
+            tenant_id: The tenant UUID to inject.
+        """
+        await conn.execute(
+            text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
             {"tenant_id": str(tenant_id)},
         )
         logger.debug("tenant_context_set", tenant_id=str(tenant_id))
-    except SQLAlchemyError as exc:
-        logger.error(
-            "failed_to_set_tenant_context",
-            tenant_id=str(tenant_id),
-            error=str(exc),
-        )
-        raise
+
+    @asynccontextmanager
+    async def admin_session(self) -> AsyncGenerator[AsyncSession, None]:
+        """Yield an :class:`AsyncSession` without a real tenant context.
+
+        The ``app.current_tenant`` variable is set to the zero UUID so that
+        RLS policies evaluate but match no tenant rows (i.e. the session
+        sees an empty result set for tenant-scoped tables).
+
+        Yields:
+            An :class:`AsyncSession` with the null tenant context.
+
+        Raises:
+            RuntimeError: If :meth:`connect` has not been called.
+        """
+        if not self._initialized or self._session_maker is None:
+            raise RuntimeError("Session manager not initialized. Call connect() first.")
+
+        start = time.monotonic()
+
+        try:
+            async with self._session_maker() as session:
+                await self.set_tenant_context(session, _default_tenant_uuid)
+
+                pool_stats = self._pool_stats()
+                logger.debug("admin_session_acquired", pool_stats=pool_stats)
+
+                try:
+                    yield session
+                except SQLAlchemyError as exc:
+                    await session.rollback()
+                    logger.error("admin_session_error", error=str(exc))
+                    raise
+                finally:
+                    await session.close()
+                    elapsed_ms = round((time.monotonic() - start) * 1000, 2)
+                    logger.debug("admin_session_released", duration_ms=elapsed_ms)
+        except RuntimeError:
+            raise
+        except Exception:
+            logger.exception("admin_session_acquisition_failed", pool_stats=self._pool_stats())
+            raise
+
+
+def get_session_manager() -> TenantSessionManager:
+    """Return the global :class:`TenantSessionManager` singleton.
+
+    Creates the manager lazily on first call using :func:`_get_database_url`.
+    """
+    global _session_manager
+    if _session_manager is None:
+        _session_manager = TenantSessionManager(_get_database_url())
+    return _session_manager
 
 
 async def initialize_database() -> AsyncEngine:
-    """Initialize the database engine and session maker.
-
-    Creates the global engine and session maker used by session factories.
-    This must be called once at application startup.
+    """Initialise the global engine and session maker.
 
     Returns:
-        The global async engine.
+        The underlying :class:`AsyncEngine`.
     """
-    global _session_maker, _admin_engine
-
-    if _admin_engine is not None:
-        logger.warning("session_factory_already_initialized")
-        return _admin_engine
-
-    _admin_engine = _create_engine()
-    _setup_rls_listener(_admin_engine)
-    _session_maker = _initialize_session_maker(_admin_engine)
-
-    logger.info("database_initialized")
-    return _admin_engine
+    manager = get_session_manager()
+    await manager.connect()
+    return manager.engine
 
 
 async def close_database() -> None:
-    """Close the database engine and release all connections."""
-    global _session_maker, _admin_engine
-
-    if _admin_engine is not None:
-        await _admin_engine.dispose()
-        _admin_engine = None
-        _session_maker = None
-
+    """Dispose the global engine and release all connections."""
+    global _session_manager
+    if _session_manager is not None:
+        await _session_manager.dispose()
+        _session_manager = None
     logger.info("database_closed")
-
-
-def get_database_url() -> str:
-    """Get the current database URL."""
-    return _get_database_url()
 
 
 @asynccontextmanager
 async def get_tenant_session(tenant_id: UUID) -> AsyncGenerator[AsyncSession, None]:
-    """Get a tenant-aware database session.
-
-    This context manager yields an AsyncSession with the tenant context
-    set for RLS enforcement. All queries within this session will
-    automatically be filtered by the tenant_id.
+    """Context manager yielding a tenant-scoped session (backward compatible).
 
     Args:
-        tenant_id: The tenant ID to set for RLS context.
+        tenant_id: The tenant UUID for RLS context.
 
     Yields:
-        AsyncSession configured with tenant RLS context.
-
-    Raises:
-        RuntimeError: If the session factory has not been initialized.
-        ValueError: If tenant_id is None.
-
-    Example:
-        >>> async with get_tenant_session(tenant_id) as session:
-        ...     result = await session.execute(select(User))
-        ...     users = result.scalars().all()
+        An :class:`AsyncSession` with the tenant context set.
     """
     if tenant_id is None:
         raise ValueError("tenant_id is required for tenant-scoped session")
 
-    if _session_maker is None or _admin_engine is None:
-        raise RuntimeError(
-            "Session factory not initialized. Call initialize_database() first."
-        )
-
-    previous_tenant_id = _current_tenant_id.get()
-    token = _current_tenant_id.set(tenant_id)
-
-    try:
-        async with _session_maker() as session:
-            await _set_tenant_context_on_session(session, tenant_id)
-            try:
-                yield session
-            except SQLAlchemyError as exc:
-                await session.rollback()
-                logger.error(
-                    "session_error",
-                    error=str(exc),
-                    tenant_id=str(tenant_id),
-                )
-                raise
-            finally:
-                await session.close()
-    finally:
-        _current_tenant_id.reset(token)
+    manager = get_session_manager()
+    async with manager.get_session(tenant_id) as session:
+        yield session
 
 
 @asynccontextmanager
 async def get_admin_session() -> AsyncGenerator[AsyncSession, None]:
-    """Get an admin database session without tenant context.
-
-    This context manager yields an AsyncSession without setting
-    the tenant RLS context. Used for cross-tenant operations
-    like admin dashboards and tenant provisioning.
+    """Context manager yielding an admin session without real tenant context.
 
     Yields:
-        AsyncSession without tenant RLS context.
-
-    Raises:
-        RuntimeError: If the session factory has not been initialized.
+        An :class:`AsyncSession` with the null tenant context.
     """
-    if _session_maker is None or _admin_engine is None:
-        raise RuntimeError(
-            "Session factory not initialized. Call initialize_database() first."
-        )
-
-    previous_tenant_id = _current_tenant_id.get()
-    token = _current_tenant_id.set(None)
-
-    try:
-        async with _session_maker() as session:
-            try:
-                await session.execute(
-                    text("SET LOCAL app.current_tenant = '00000000-0000-0000-0000-000000000000'")
-                )
-            except SQLAlchemyError as exc:
-                logger.error("failed_to_clear_tenant_context", error=str(exc))
-                raise
-
-            try:
-                yield session
-            except SQLAlchemyError as exc:
-                await session.rollback()
-                logger.error("admin_session_error", error=str(exc))
-                raise
-            finally:
-                await session.close()
-    finally:
-        _current_tenant_id.reset(token)
+    manager = get_session_manager()
+    async with manager.admin_session() as session:
+        yield session

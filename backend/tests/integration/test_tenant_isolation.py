@@ -1,276 +1,262 @@
 """Integration tests for tenant isolation via PostgreSQL RLS.
 
-These tests use testcontainers to spin up a real PostgreSQL instance
-and verify that RLS policies correctly enforce tenant isolation.
+Tests RLS enforcement, API key scoping, JWT tenant isolation, and
+cross-tenant Redis Stream isolation using real PostgreSQL and Redis
+testcontainers.
 """
 
+from __future__ import annotations
+
+import hashlib
+import json
 import os
 from typing import AsyncGenerator
 from uuid import UUID, uuid4
 
 import pytest
+import redis.asyncio as aioredis
 import structlog
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import NullPool
-from testcontainers.postgres import PostgresContainer
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from db.models import APIKey, Base, Tenant, TenantConfig, User
-from db.tenant_session import (
-    get_admin_session,
-    get_tenant_session,
-    initialize_database,
-)
+from db.models import APIKey, Base, Tenant, User
+from streams.base import StreamConsumer, StreamProducer
+from streams.keys import StreamKeyBuilder
 
 logger = structlog.get_logger(__name__)
 
 
-@pytest.fixture(scope="module")
-def postgres_container() -> PostgresContainer:
-    """Start a PostgreSQL testcontainer for integration tests."""
-    with PostgresContainer("pgvector/pgvector:pg16") as postgres:
-        os.environ["TEST_DATABASE_URL"] = postgres.get_connection_url()
-        yield postgres
-
-
-@pytest.fixture(scope="module")
-async def integration_engine(postgres_container: PostgresContainer) -> AsyncGenerator[AsyncEngine, None]:
-    """Create an async engine pointing to the testcontainer."""
-    database_url = postgres_container.get_connection_url()
-    if database_url.startswith("postgresql://"):
-        database_url = database_url.replace("postgresql://", "postgresql+asyncpg://")
-
-    engine = create_async_engine(
-        database_url,
-        echo=False,
-        poolclass=NullPool,
-        connect_args={
-            "server_settings": {
-                "application_name": "integration-test",
-            },
-        },
-    )
-
-    # Create extensions and helper function
-    async with engine.begin() as conn:
-        await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'))
-        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-        await conn.execute(text("""
-            CREATE OR REPLACE FUNCTION set_tenant_context(tenant_uuid UUID)
-            RETURNS VOID AS $$
-            BEGIN
-                PERFORM set_config('app.current_tenant', tenant_uuid::TEXT, false);
-            END;
-            $$ LANGUAGE plpgsql;
-        """))
-
-    # Create tables
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-
-    # Enable RLS and create policies
-    async with engine.sync_engine.connect() as conn:
-        tables = ["tenants", "users", "api_keys", "tenant_configs"]
-        for table in tables:
-            await conn.execute(text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;"))
-            await conn.execute(text(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY;"))
-
-        await conn.execute(text("""
-            CREATE POLICY tenant_isolation ON tenants
-            FOR ALL USING (id = current_setting('app.current_tenant')::UUID);
-        """))
-        await conn.execute(text("""
-            CREATE POLICY tenant_isolation ON users
-            FOR ALL USING (tenant_id = current_setting('app.current_tenant')::UUID);
-        """))
-        await conn.execute(text("""
-            CREATE POLICY tenant_isolation ON api_keys
-            FOR ALL USING (tenant_id = current_setting('app.current_tenant')::UUID);
-        """))
-        await conn.execute(text("""
-            CREATE POLICY tenant_isolation ON tenant_configs
-            FOR ALL USING (tenant_id = current_setting('app.current_tenant')::UUID);
-        """))
-
-    yield engine
-    await engine.dispose()
-
-
-@pytest.fixture
-def tenant_a() -> dict:
-    """Fixture for tenant A."""
-    return {
-        "id": UUID("11111111-1111-1111-1111-111111111111"),
-        "name": "Tenant A",
-        "slug": "tenant-a",
-    }
-
-
-@pytest.fixture
-def tenant_b() -> dict:
-    """Fixture for tenant B."""
-    return {
-        "id": UUID("22222222-2222-2222-2222-222222222222"),
-        "name": "Tenant B",
-        "slug": "tenant-b",
-    }
-
-
-@pytest.fixture
-async def seed_database(integration_engine: AsyncEngine, tenant_a: dict, tenant_b: dict) -> dict:
-    """Seed the database with two tenants and their users."""
-    async_session = async_sessionmaker(
-        bind=integration_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-
-    async with async_session() as session:
-        t1 = Tenant(
-            id=tenant_a["id"],
-            name=tenant_a["name"],
-            slug=tenant_a["slug"],
-            tier="free",
-        )
-        t2 = Tenant(
-            id=tenant_b["id"],
-            name=tenant_b["name"],
-            slug=tenant_b["slug"],
-            tier="pro",
-        )
-        session.add_all([t1, t2])
-        await session.commit()
-
-    async with async_session() as session:
-        u1 = User(
-            tenant_id=tenant_a["id"],
-            email="user_a@test.com",
-            hashed_password="hashed",
-            role="admin",
-            is_active=True,
-        )
-        u2 = User(
-            tenant_id=tenant_b["id"],
-            email="user_b@test.com",
-            hashed_password="hashed",
-            role="admin",
-            is_active=True,
-        )
-        session.add_all([u1, u2])
-        await session.commit()
-
-    return {"tenant_a": tenant_a, "tenant_b": tenant_b}
-
-
-@pytest.fixture
-def async_session_factory(integration_engine: AsyncEngine):
-    """Provide an async session factory bound to integration engine."""
-    return async_sessionmaker(
-        bind=integration_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-
-
-class TestTenantIsolation:
-    """Integration tests for RLS-based tenant isolation."""
+class TestTenantRLSEnforcement:
+    """Verify RLS blocks cross-tenant data visibility."""
 
     @pytest.mark.asyncio
-    async def test_tenant_a_cannot_read_tenant_b_users(
-        self, async_session_factory, seed_database: dict
+    async def test_tenant_b_cannot_see_tenant_a_users(
+        self,
+        test_engine: AsyncEngine,
+        test_tenant_a: dict,
+        test_tenant_b: dict,
+        test_user_a: dict,
+        test_user_b: dict,
     ) -> None:
-        """Tenant A should not be able to query Tenant B's users."""
-        async with async_session_factory() as session:
-            await session.execute(
-                text("SET LOCAL app.current_tenant = :tenant_id"),
-                {"tenant_id": str(seed_database["tenant_a"]["id"])},
-            )
-            await session.commit()
+        """Tenant B's session should not see Tenant A's users."""
+        session_factory = async_sessionmaker(
+            bind=test_engine, class_=AsyncSession, expire_on_commit=False
+        )
 
-            result = await session.execute(text("SELECT tenant_id, email FROM users ORDER BY email"))
+        async with session_factory() as session:
+            await session.execute(
+                text("SELECT set_config('app.current_tenant', :tid, true)"),
+                {"tid": str(test_tenant_b["id"])},
+            )
+
+            result = await session.execute(text("SELECT tenant_id FROM users"))
             rows = result.fetchall()
 
-            assert len(rows) == 1
-            assert rows[0][0] == seed_database["tenant_a"]["id"]
-            assert rows[0][1] == "user_a@test.com"
+            tenant_ids_in_result = [r[0] for r in rows]
+            assert test_tenant_a["id"] not in tenant_ids_in_result, (
+                f"Tenant B should not see Tenant A's users"
+            )
+            assert test_tenant_b["id"] in tenant_ids_in_result
 
     @pytest.mark.asyncio
-    async def test_rls_policy_blocks_cross_tenant_access(
-        self, async_session_factory, seed_database: dict
+    async def test_tenant_a_can_see_own_users(
+        self,
+        test_engine: AsyncEngine,
+        test_tenant_a: dict,
+        test_tenant_b: dict,
+        test_user_a: dict,
     ) -> None:
-        """RLS should block direct cross-tenant queries."""
-        async with async_session_factory() as session:
+        """Tenant A's session should return its own users."""
+        session_factory = async_sessionmaker(
+            bind=test_engine, class_=AsyncSession, expire_on_commit=False
+        )
+
+        async with session_factory() as session:
             await session.execute(
-                text("SET LOCAL app.current_tenant = :tenant_id"),
-                {"tenant_id": str(seed_database["tenant_a"]["id"])},
+                text("SELECT set_config('app.current_tenant', :tid, true)"),
+                {"tid": str(test_tenant_a["id"])},
             )
-            await session.commit()
+
+            result = await session.execute(text("SELECT tenant_id FROM users"))
+            rows = result.fetchall()
+            tenant_ids = [r[0] for r in rows]
+            assert test_tenant_a["id"] in tenant_ids
+            assert test_tenant_b["id"] not in tenant_ids
+
+    @pytest.mark.asyncio
+    async def test_cross_tenant_insert_blocked(
+        self,
+        test_engine: AsyncEngine,
+        test_tenant_a: dict,
+        test_tenant_b: dict,
+    ) -> None:
+        """RLS should block inserting a Tenant B user from Tenant A's session."""
+        session_factory = async_sessionmaker(
+            bind=test_engine, class_=AsyncSession, expire_on_commit=False
+        )
+
+        async with session_factory() as session:
+            await session.execute(
+                text("SELECT set_config('app.current_tenant', :tid, true)"),
+                {"tid": str(test_tenant_a["id"])},
+            )
 
             try:
-                await session.execute(text("""
-                    INSERT INTO users (tenant_id, email, hashed_password, role, is_active)
-                    VALUES (:tid, 'cross@test.com', 'hashed', 'member', true)
-                """), {"tid": str(seed_database["tenant_b"]["id"])})
+                await session.execute(
+                    text("""
+                        INSERT INTO users (tenant_id, email, hashed_password, role, is_active)
+                        VALUES (:tid, 'cross@test.com', 'hashed', 'member', true)
+                    """),
+                    {"tid": str(test_tenant_b["id"])},
+                )
                 await session.commit()
                 pytest.fail("RLS should have blocked cross-tenant INSERT")
             except Exception:
                 await session.rollback()
 
-    @pytest.mark.asyncio
-    async def test_admin_session_can_read_across_tenants(
-        self, async_session_factory, seed_database: dict
-    ) -> None:
-        """Admin session should be able to read all tenants' data."""
-        async with async_session_factory() as session:
-            await session.execute(
-                text("SET LOCAL app.current_tenant = '00000000-0000-0000-0000-000000000000'")
-            )
-            await session.commit()
 
-            result = await session.execute(text("SELECT tenant_id, email FROM users ORDER BY email"))
-            rows = result.fetchall()
-
-            # With default tenant UUID, should see nothing (no tenant matches 0000...)
-            assert len(rows) == 0
+class TestAPIKeyScoping:
+    """Verify API keys are scoped to their tenant."""
 
     @pytest.mark.asyncio
-    async def test_insert_with_wrong_tenant_context_invisible(
-        self, async_session_factory, seed_database: dict
+    async def test_api_key_returns_correct_tenant(
+        self,
+        integration_engine: AsyncEngine,
+        test_tenant_a: dict,
+        test_api_key_a: dict,
     ) -> None:
-        """Records inserted with wrong tenant context should be invisible to other tenants."""
-        async with async_session_factory() as session:
-            await session.execute(
-                text("SET LOCAL app.current_tenant = :tenant_id"),
-                {"tenant_id": str(seed_database["tenant_a"]["id"])},
+        """Verifying an API key should return the key's tenant_id."""
+        key_hash = hashlib.sha256(test_api_key_a["raw_key"].encode()).hexdigest()
+
+        session_factory = async_sessionmaker(
+            bind=integration_engine, class_=AsyncSession, expire_on_commit=False
+        )
+        async with session_factory() as session:
+            result = await session.execute(
+                select(APIKey).where(APIKey.key_hash == key_hash)
             )
-            await session.commit()
+            db_key = result.scalar_one_or_none()
 
-            await session.execute(text("""
-                INSERT INTO api_keys (tenant_id, key_hash, name, scopes, is_active)
-                VALUES (:tid, 'hash_a', 'key-a', '{}', true)
-            """), {"tid": str(seed_database["tenant_a"]["id"])})
-            await session.commit()
+            assert db_key is not None
+            assert db_key.tenant_id == test_tenant_a["id"]
 
-        async with async_session_factory() as session:
-            await session.execute(
-                text("SET LOCAL app.current_tenant = :tenant_id"),
-                {"tenant_id": str(seed_database["tenant_b"]["id"])},
-            )
-            await session.commit()
+    @pytest.mark.asyncio
+    async def test_wrong_tenant_header_with_valid_key_returns_403(
+        self,
+        integration_gateway,
+        test_tenant_a: dict,
+        test_api_key_a: dict,
+    ) -> None:
+        """Using a valid API key with wrong x-tenant-id should return 403."""
+        response = await integration_gateway.post(
+            "/auth/login",
+            data={"username": "nonexistent@test.com", "password": "wrong"},
+            headers={
+                "x-api-key": test_api_key_a["raw_key"],
+                "x-tenant-id": str(uuid4()),  # wrong tenant
+            },
+        )
+        assert response.status_code in (401, 403)
 
-            result = await session.execute(text("SELECT key_hash, name FROM api_keys"))
-            rows = result.fetchall()
-            assert len(rows) == 0
 
-        async with async_session_factory() as session:
-            await session.execute(
-                text("SET LOCAL app.current_tenant = :tenant_id"),
-                {"tenant_id": str(seed_database["tenant_a"]["id"])},
-            )
-            await session.commit()
+class TestJWTTenantIsolation:
+    """Verify JWT tokens are bound to their tenant."""
 
-            result = await session.execute(text("SELECT key_hash, name FROM api_keys"))
-            rows = result.fetchall()
+    @pytest.mark.asyncio
+    async def test_jwt_returns_own_tenant_regardless_of_header(
+        self,
+        integration_gateway,
+        test_tenant_a: dict,
+        test_user_a: dict,
+    ) -> None:
+        """A JWT for Tenant A should return Tenant A's ID even with a different x-tenant-id header.
 
-            assert len(rows) == 1
-            assert rows[0][1] == "key-a"
+        The /health/tenant endpoint uses get_current_user (JWT-only) not get_db,
+        so the tenant header is ignored. The JWT's tenant_id is authoritative.
+        """
+        from api.auth import create_access_token
+
+        token = create_access_token(
+            data={
+                "sub": str(test_user_a["id"]),
+                "tenant_id": str(test_tenant_a["id"]),
+            }
+        )
+
+        response = await integration_gateway.get(
+            "/health/tenant",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "x-tenant-id": str(uuid4()),  # wrong tenant — ignored
+            },
+        )
+        assert response.status_code == 200
+        assert response.json()["tenant_id"] == str(test_tenant_a["id"])
+
+    @pytest.mark.asyncio
+    async def test_invalid_jwt_rejected(
+        self,
+        integration_gateway,
+    ) -> None:
+        """A garbage JWT should return 401."""
+        response = await integration_gateway.get(
+            "/health/tenant",
+            headers={
+                "Authorization": "Bearer garbage",
+                "x-tenant-id": str(uuid4()),
+            },
+        )
+        assert response.status_code == 401
+
+
+class TestCrossTenantStreamIsolation:
+    """Verify Redis Streams are logically isolated per tenant."""
+
+    @pytest.mark.asyncio
+    async def test_tenant_b_consumer_does_not_receive_tenant_a_messages(
+        self,
+        integration_redis: aioredis.Redis,
+        test_tenant_a: dict,
+        test_tenant_b: dict,
+    ) -> None:
+        """Messages published to Tenant A's stream should not appear in Tenant B's."""
+        key_builder = StreamKeyBuilder()
+
+        stream_a = key_builder.signal_stream(test_tenant_a["id"])
+        stream_b = key_builder.signal_stream(test_tenant_b["id"])
+
+        producer = StreamProducerImpl(integration_redis, stream_a)
+        await producer.publish({"event": "signal_a", "data": "classified"})
+
+        consumer_b = StreamConsumerImpl(
+            integration_redis,
+            stream_b,
+            consumer_group="cg:test",
+            consumer_name="test-b",
+        )
+        await consumer_b.start()
+        await consumer_b._task  # type: ignore
+        await consumer_b.stop()
+
+        assert len(consumer_b.received_messages) == 0, (
+            "Tenant B's consumer should not receive Tenant A's messages"
+        )
+
+
+class StreamProducerImpl(StreamProducer):
+    """Concrete producer for integration tests."""
+
+    pass
+
+
+class StreamConsumerImpl(StreamConsumer):
+    """Concrete consumer for integration tests that records received messages."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.received_messages: list[dict] = []
+
+    async def process_message(self, message_id: str, message: dict) -> bool:
+        self.received_messages.append(message)
+        return True

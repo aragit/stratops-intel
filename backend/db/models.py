@@ -125,7 +125,7 @@ class User(Base):
         String(50), nullable=False, server_default=UserRole.MEMBER.value
     )
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=func.true()
+        Boolean, nullable=False, server_default=text("true")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
@@ -184,7 +184,7 @@ class APIKey(Base):
         DateTime(timezone=True), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=func.true()
+        Boolean, nullable=False, server_default=text("true")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
