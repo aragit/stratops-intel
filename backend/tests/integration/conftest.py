@@ -46,6 +46,11 @@ except ImportError:
     from testcontainers.redis import RedisContainer
 
 try:
+    from testcontainers.neo4j import Neo4jContainer
+except ImportError:
+    Neo4jContainer = None
+
+try:
     from testcontainers.minio import MinioContainer
 except ImportError:
     MinioContainer = None
@@ -399,3 +404,150 @@ async def integration_gateway(
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             yield client
+
+
+# === Week 4 fixtures ===
+
+@pytest.fixture(scope="module")
+def neo4j_container():
+    """Neo4j test container."""
+    if Neo4jContainer is None:
+        pytest.skip("testcontainers-neo4j not installed")
+    container = Neo4jContainer("neo4j:5-community")
+    container.start()
+    yield container
+    container.stop()
+
+
+@pytest.fixture
+def neo4j_client(neo4j_container: Neo4jContainer):
+    """Neo4j client for test container."""
+    return Neo4jClient(
+        uri=neo4j_container.get_url(),
+        user="neo4j",
+        password=neo4j_container.password,
+    )
+
+
+@pytest.fixture
+def test_tenant(neo4j_client: Neo4jClient) -> str:
+    """Create a test tenant in Neo4j."""
+    tenant_id = str(uuid4())
+    asyncio.get_event_loop().run_until_complete(
+        neo4j_client.run(
+            "CREATE (t:Tenant {id: $id, name: 'Test Tenant'})",
+            {"id": tenant_id}
+        )
+    )
+    return tenant_id
+
+
+@pytest.fixture
+def sample_signal_text() -> str:
+    """Sample signal text for testing."""
+    return (
+        "Apple Inc. reported record quarterly revenue of $94.8 billion, "
+        "up 2% year over year. CEO Tim Cook said the company is seeing "
+        "strong demand for iPhone 15 and services. CFO Luca Maestri "
+        "guided for $81-83 billion revenue next quarter. "
+        "Microsoft reported Azure growth of 29% in constant currency. "
+        "Satya Nadella emphasized AI-driven growth across cloud and productivity."
+    )
+
+
+@pytest.fixture
+def mock_extraction_service():
+    """Mock BentoML extraction service responses."""
+    with respx.mock() as mock:
+        mock.post("http://bentoml-extraction:3000/v1/extract").mock(
+            return_value=type('obj', (object,), {
+                'status_code': 200,
+                'json': lambda: [
+                    {
+                        "result": {
+                            "entities": [
+                                {"company_name": "Apple Inc.", "ticker": "AAPL"},
+                                {"name": "Tim Cook", "role": "CEO"},
+                                {"company_name": "Microsoft", "ticker": "MSFT"},
+                                {"name": "Satya Nadella", "role": "CEO"},
+                            ]
+                        }
+                    }
+                ]
+            })
+        )
+        yield mock
+
+
+@pytest.fixture
+def mock_summarization_service():
+    """Mock BentoML summarization service responses."""
+    with respx.mock() as mock:
+        mock.post("http://bentoml-summarization:3000/summarize").mock(
+            return_value=type('obj', (object,), {
+                'status_code': 200,
+                'json': lambda: [
+                    {"summaries": ["Apple reported record revenue driven by iPhone and services."], "model": "test", "batch_size": 1, "total_tokens": 50}
+                ]
+            })
+        )
+        yield mock
+
+
+@pytest.fixture
+def mock_narrative_service():
+    """Mock BentoML narrative service responses."""
+    with respx.mock() as mock:
+        mock.post("http://bentoml-narrative:3000/generate").mock(
+            return_value=type('obj', (object,), {
+                'status_code': 200,
+                'json': lambda: {
+                    "narrative": "# Executive Brief\n\nApple reported record revenue of $94.8B driven by iPhone and services.\n\nKey developments:\n- iPhone 15 demand strong\n- Services revenue growing\n- Guidance conservative\n\nRecommended actions:\n- Monitor iPhone demand in China\n- Invest in AI services",
+                    "key_takeaways": [
+                        "Apple reported record $94.8B revenue",
+                        "iPhone and services driving growth",
+                        "Conservative guidance for next quarter"
+                    ],
+                    "confidence": 0.85,
+                    "model": "test-model"
+                }
+            })
+        )
+        yield mock
+
+
+@pytest.fixture
+def mock_bentoml_summarization():
+    """Mock BentoML summarization service."""
+    with respx.mock() as mock:
+        mock.post("http://bentoml-summarization:3000/summarize").mock(
+            return_value=type('obj', (object,), {
+                'status_code': 200,
+                'json': lambda: [
+                    {"summaries": ["Apple reported record revenue driven by iPhone and services."], "model": "test", "batch_size": 1, "total_tokens": 50}
+                ]
+            })
+        )
+        yield mock
+
+
+@pytest.fixture
+def mock_bentoml_narrative():
+    """Mock BentoML narrative service."""
+    with respx.mock() as mock:
+        mock.post("http://bentoml-narrative:3000/generate").mock(
+            return_value=type('obj', (object,), {
+                'status_code': 200,
+                'json': lambda: {
+                    "narrative": "# Executive Brief\n\nApple reported record revenue of $94.8B driven by iPhone and services.\n\nKey developments:\n- iPhone 15 demand strong\n- Services revenue growing\n- Guidance conservative\n\nRecommended actions:\n- Monitor iPhone demand in China\n- Invest in AI services",
+                    "key_takeaways": [
+                        "Apple reported record $94.8B revenue",
+                        "iPhone and services driving growth",
+                        "Conservative guidance for next quarter"
+                    ],
+                    "confidence": 0.85,
+                    "model": "test-model"
+                }
+            })
+        )
+        yield mock
