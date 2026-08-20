@@ -296,3 +296,58 @@ class Signal(Base):
 
     def __repr__(self) -> str:
         return f"<Signal(id={self.id}, source_type={self.source_type!r}, tenant_id={self.tenant_id})>"
+
+
+class BriefingModel(Base):
+    """Briefing model for competitive intelligence briefings.
+
+    Stores briefing metadata with pointer to MinIO content.
+    Partitioned by tenant_id for RLS enforcement.
+
+    Table: briefings
+    """
+
+    __tablename__ = "briefings"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+        server_default=func.gen_random_uuid(),
+    )
+    tenant_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_md_uri: Mapped[str] = mapped_column(String(500), nullable=False)
+    version: Mapped[int] = mapped_column(default=1, nullable=False)
+    is_current: Mapped[bool] = mapped_column(default=True, nullable=False)
+    generated_by: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSON, nullable=True
+    )
+    metadata: Mapped[Optional[dict[str, Any]]] = mapped_column(
+        JSON, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    tenant: Mapped["Tenant"] = relationship("Tenant", lazy="selectin")
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "title", "version", name="uq_briefings_tenant_title_version"),
+        Index("ix_briefings_tenant_id", "tenant_id"),
+        Index("ix_briefings_tenant_id_is_current", "tenant_id", "is_current"),
+        Index("ix_briefings_tenant_id_created_at_desc", "tenant_id", "created_at".desc()),
+    )
+
+    def __repr__(self) -> str:
+        return f"<BriefingModel(id={self.id}, title={self.title!r}, tenant_id={self.tenant_id}, version={self.version})>"
