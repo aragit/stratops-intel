@@ -11,8 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
-from typing import Any, List, Optional
+from typing import Any
 
 import structlog
 from pydantic import BaseModel, Field
@@ -51,7 +50,7 @@ class EntityUpdate(BaseModel):
     entity_id: str = Field(..., description="Entity ID")
     tenant_id: str = Field(..., description="Tenant identifier")
     properties: dict = Field(..., description="Entity properties")
-    relationships: List[RelationshipUpdate] = Field(
+    relationships: list[RelationshipUpdate] = Field(
         default_factory=list, description="Relationship updates"
     )
 
@@ -87,9 +86,9 @@ class MicroBatchBuffer:
         self.tenant_id = tenant_id
         self.batch_size = batch_size
         self.flush_interval_ms = flush_interval_ms
-        self._buffer: List[dict] = []
+        self._buffer: list[dict] = []
         self._flush_lock = asyncio.Lock()
-        self._flush_task: Optional[asyncio.Task] = None
+        self._flush_task: asyncio.Task | None = None
 
         self._buffer_key = f"stratops:tenant:{tenant_id}:graph:pending"
         self._pending_key = f"stratops:tenant:{tenant_id}:graph:buffer"
@@ -109,7 +108,7 @@ class MicroBatchBuffer:
             if len(self._buffer) >= self.batch_size:
                 await self.flush()
 
-    async def flush(self) -> List[dict]:
+    async def flush(self) -> list[dict]:
         """Flush all accumulated updates from the buffer.
 
         LRANGE all items from the list, then DELETE the list atomically.
@@ -131,7 +130,6 @@ class MicroBatchBuffer:
             for raw in raw_items:
                 try:
                     update_dict = json.loads(raw)
-                    key = (update_dict["entity_id"], None)  # Will be set per rel
                     # Deduplication: keep latest by timestamp or order
                     # We'll deduplicate at the relationship level
                     if update_dict["entity_id"] not in entity_updates:
@@ -150,8 +148,8 @@ class MicroBatchBuffer:
                     continue
 
             # Rebuild updates with deduplicated relationships
-            deduplicated: List[dict] = []
-            for entity_id, entity_update in entity_updates.items():
+            deduplicated: list[dict] = []
+            for _entity_id, entity_update in entity_updates.items():
                 # Filter relationships to only deduplicated ones
                 dedup_rels = []
                 for rel in entity_update.get("relationships", []):
@@ -244,7 +242,7 @@ class GraphWriterWorker:
         self.flush_interval_ms = flush_interval_ms
         self._buffer = MicroBatchBuffer(redis, tenant_id, batch_size, flush_interval_ms)
         self._running = False
-        self._consume_task: Optional[asyncio.Task] = None
+        self._consume_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Start the worker background task.
@@ -290,8 +288,8 @@ class GraphWriterWorker:
         enqueues to buffer, and triggers batch flushes.
         """
         stream_key = f"stratops:tenant:{self.tenant_id}:graph:buffer"
-        consumer_group = f"cg:graph_writer"
-        consumer_name = f"graph_writer_worker"
+        consumer_group = "cg:graph_writer"
+        consumer_name = "graph_writer_worker"
 
         # Ensure stream and consumer group exist
         await self._ensure_stream_and_group(stream_key, consumer_group)
@@ -308,7 +306,7 @@ class GraphWriterWorker:
                 )
 
                 if result and len(result) > 0:
-                    for stream, messages in result:
+                    for _stream, messages in result:
                         for message_id, message_data in messages:
                             await self._process_message(message_id, message_data)
 
@@ -370,7 +368,7 @@ class GraphWriterWorker:
             # Acknowledge the message (XACK)
             await self.redis.xack(
                 f"stratops:tenant:{self.tenant_id}:graph:buffer",
-                f"cg:graph_writer",
+                "cg:graph_writer",
                 message_id,
             )
 
@@ -385,7 +383,7 @@ class GraphWriterWorker:
             # For now, just log and acknowledge to prevent message loss
             await self.redis.xack(
                 f"stratops:tenant:{self.tenant_id}:graph:buffer",
-                f"cg:graph_writer",
+                "cg:graph_writer",
                 message_id,
             )
 
