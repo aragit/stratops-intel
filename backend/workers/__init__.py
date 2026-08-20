@@ -1,11 +1,12 @@
-"""Workers package - background processing for ingestion."""
+"""Workers package - background processing for ingestion.
+
+.. note::
+    .. versionchanged:: 0.2.0
+        Imports are now lazy-loaded to avoid circular dependencies.
+"""
 
 from __future__ import annotations
 
-from workers.ingestion_worker import IngestionWorker, create_ingestion_worker, run_ingestion_worker
+# Imports are lazy-loaded to avoid circular dependencies at package init time
 
-__all__ = [
-    "IngestionWorker",
-    "create_ingestion_worker",
-    "run_ingestion_worker",
-]
+__all__ = []

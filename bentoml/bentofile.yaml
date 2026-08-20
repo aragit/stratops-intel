@@ -34,3 +34,16 @@ docker:
   setup_script: |
     pip install --no-cache-dir --upgrade pip
     pip install --no-cache-dir vllm==0.6.0 --extra-index-url https://download.pytorch.org/whl/cu121
+
+traffic:
+  timeout: 30
+  concurrency: 16
+
+resources:
+  gpu: 1
+  memory: "24Gi"
+
+batching:
+  max_batch_size: 32
+  max_latency_ms: 50
+  batch_dim: 0
