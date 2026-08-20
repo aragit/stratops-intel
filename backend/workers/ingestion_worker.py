@@ -12,12 +12,10 @@ import json
 import os
 import time
 from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import structlog
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 # Import from ingestion base
 from ingestion.base import (
@@ -26,7 +24,6 @@ from ingestion.base import (
     IngestionResult,
     NormalizedSignal,
     RawSignal,
-    SourceAdapter,
 )
 
 # Import DB dependencies
@@ -61,8 +58,7 @@ def _get_aiobotocore():
         return None, None, False
 
 
-AIOBOTOCORE_AVAILABLE = False
-AioBaseClient = None
+aiobotocore_session, AioBaseClient, AIOBOTOCORE_AVAILABLE = _get_aiobotocore()
 
 logger = structlog.get_logger(__name__)
 
@@ -90,9 +86,9 @@ class IngestionWorker:
         consumer_name: str = "ingestion-worker-1",
         batch_size: int = 10,
         block_ms: int = 5000,
-        minio_endpoint: Optional[str] = None,
-        minio_access_key: Optional[str] = None,
-        minio_secret_key: Optional[str] = None,
+        minio_endpoint: str | None = None,
+        minio_access_key: str | None = None,
+        minio_secret_key: str | None = None,
         minio_region: str = "us-east-1",
         minio_secure: bool = False,
     ):
@@ -110,11 +106,11 @@ class IngestionWorker:
         self.minio_secure = minio_secure
 
         # Runtime
-        self._redis: Optional[aioredis.Redis] = None
-        self._s3_client: Optional[AioBaseClient] = None
-        self._session_manager: Optional[TenantSessionManager] = None
+        self._redis: aioredis.Redis | None = None
+        self._s3_client: AioBaseClient | None = None
+        self._session_manager: TenantSessionManager | None = None
         self._running = False
-        self._task: Optional[asyncio.Task] = None
+        self._task: asyncio.Task | None = None
 
     async def _ensure_redis(self) -> aioredis.Redis:
         if self._redis is None:
@@ -134,7 +130,7 @@ class IngestionWorker:
         if self._s3_client is None:
             if not AIOBOTOCORE_AVAILABLE:
                 raise RuntimeError("aiobotocore not installed")
-            session = aiobotocore.session.get_session()
+            session = aiobotocore_session.get_session()
             self._s3_client = await session.create_client(
                 "s3",
                 endpoint_url=f"http{'s' if self.minio_secure else ''}://{self.minio_endpoint}",
@@ -167,7 +163,7 @@ class IngestionWorker:
             return
 
         self._running = True
-        redis = await self._ensure_redis()
+        await self._ensure_redis()
 
         # Start consumption loop for all tenant streams
         # For simplicity, we use a single consumer group and read from all streams
@@ -181,7 +177,7 @@ class IngestionWorker:
         if self._task:
             try:
                 await asyncio.wait_for(self._task, timeout=30.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("worker_shutdown_timeout", consumer_name=self.consumer_name)
                 self._task.cancel()
                 try:
@@ -211,7 +207,7 @@ class IngestionWorker:
                     continue
 
                 # Build stream map for XREAD
-                stream_map = {stream: ">" for stream in streams}
+                stream_map = dict.fromkeys(streams, ">")
 
                 results = await redis.xread(
                     streams=stream_map,
@@ -390,8 +386,8 @@ class IngestionWorker:
         self, tenant_id: str, signals: list[NormalizedSignal], trace_id: str
     ) -> None:
         """Publish normalized signals to the signals stream for downstream processing."""
-        from streams.keys import StreamKeyBuilder
         from streams.base import StreamProducer
+        from streams.keys import StreamKeyBuilder
 
         redis = await self._ensure_redis()
         key_builder = StreamKeyBuilder()
@@ -429,7 +425,7 @@ async def create_ingestion_worker(**kwargs: Any) -> IngestionWorker:
 
 async def run_ingestion_worker(**kwargs: Any) -> None:
     """Run ingestion worker until cancelled."""
-    async with create_ingestion_worker(**kwargs) as worker:
+    async with create_ingestion_worker(**kwargs):
         try:
             while True:
                 await asyncio.sleep(3600)
