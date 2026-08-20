@@ -4,54 +4,33 @@
 
 ## Architecture
 
-```mermaid
-graph LR
-    subgraph "Client Layer"
-        N[Next.js Dashboard]
-    end
+The platform consists of the following major components:
 
-    subgraph "API Gateway"
-        G[FastAPI Gateway]
-    end
-
-    subgraph "Inference Layer"
-        B1[BentoML + vLLM Mesh]
-        E[Embedding Service]
-        N1[Narrative Service]
-        F[Fallback Service]
-    end
-
-    subgraph "Data Layer"
-        PG[PostgreSQL + pgvector + RLS]
-        NG[Neo4j Temporal Graph]
-        OB[MinIO (S3-compat)]
-        RS[Redis Streams]
-    end
-
-    subgraph "Workers"
-        IW[Ingestion Worker]
-        GW[Graph Writer]
-        EW[Embedding Worker]
-    end
-```
+- **Client Layer**: Next.js dashboard frontend
+- **API Gateway**: FastAPI service with JWT + API key dual auth, rate limiting, and request logging
+- **Inference Layer**: BentoML + vLLM mesh (Qwen2.5-7B-AWQ with guided JSON decoding), embedding service (bge-large-en-v1.5, 1024-dim normalized), narrative generation, fallback services
+- **Data Layer**: 
+  - PostgreSQL 16 with pgvector and Row-Level Security (tenant isolation via `app.current_tenant`, declarative partitioning)
+  - Neo4j 5 Community temporal knowledge graph (relationships with `valid_from`/`valid_to`)
+  - MinIO (S3-compatible) object storage for raw payloads
+  - Redis Streams for core messaging
+- **Workers**: Ingestion worker (Web/SEC adapters), graph writer (micro-batching with UNWIND...MERGE), embedding worker
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
 | **API Gateway** | FastAPI, Pydantic v2, JWT + API key auth, RBAC |
-| **AI/ML** | BentoML + vLLM (Qwen2.5-7B-AWQ, Llama-3.1-8B), LangGraph, Instructor |
-| **Embeddings** | bge-large-en-v1.5 (1024-dim), adaptive batching |
-| **Database** | PostgreSQL 16 + pgvector, Row-Level Security, declarative partitioning |
-| **Graph DB** | Neo4j 5 Community, temporal relationships, Redis-buffered batch writes |
+| **AI/ML** | BentoML + vLLM (Qwen2.5-7B-AWQ), LangGraph, Instructor |
+| **Embeddings** | bge-large-en-v1.5 (1024-dim), L2-normalized |
+| **Database** | PostgreSQL 16 + pgvector, RLS, declarative partitioning |
+| **Graph DB** | Neo4j 5 Community, temporal relationships |
 | **Messaging** | Redis Streams (core), Celery (exports only) |
-| **Object Storage** | MinIO (S3-compatible) for raw payloads |
+| **Object Storage** | MinIO (S3-compatible) |
 | **Frontend** | Next.js 14, TypeScript, TailwindCSS, shadcn/ui |
 | **Observability** | OpenTelemetry, Prometheus, structlog, Grafana |
 
-## Core Features (Implemented)
-
-### Weeks 1-3: Foundation + Ingestion + Intelligence Core
+## Core Features (Implemented Weeks 1-3)
 
 - **Multi-tenant PostgreSQL** with RLS — every connection enforces `app.current_tenant`
 - **Redis Streams** infrastructure — producer/consumer base, tenant-aware key builder
