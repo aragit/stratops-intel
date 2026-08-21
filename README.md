@@ -4,23 +4,35 @@
 [![Python: 3.11+](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org/download/releases/python-3.11/)
 [![Tests: 327 Passed](https://img.shields.io/badge/tests-327%20passed-brightgreen)](https://github.com/aragit/stratops-intel/actions)
 [![Protocol: FastMCP](https://img.shields.io/badge/protocol-FastMCP-orange)](https://modelcontextprotocol.io)
-[![License: Enterprise](https://img.shields.io/badge/license-Enterprise-green)](https://opensource.org/licenses/Enterprise)
+[![Architecture: Neural-First](https://img.shields.io/badge/architecture-Neural--First-green)](https://modelcontextprotocol.io)
 
 ---
 
 ## Executive Overview
 
-**StratOps-Intel Intelligence Core (v0.6.0)** is a high-performance, neuro-symbolic intelligence engine and graph orchestration platform built for high-throughput SEC/financial analysis, competitive tracking, and multi-agent governance. The release introduces three production-grade subsystems:
+**StratOps-Intel Intelligence Core (v0.6.0)** is a production-grade, neural-first event-driven intelligence engine built for high-throughput SEC/financial analysis, competitive tracking, and multi-agent orchestration using off-the-shelf AI SaaS frameworks. The release introduces three production-grade subsystems:
 
-1. **Tenant-Isolated Semantic Execution Cache** — Redis-backed embedding similarity cache ahead of LiteLLM/vLLM.
-2. **Pgvector Hybrid Retrieval Engine** — Sparse (BM25 `ts_rank_cd`) + Dense (pgvector cosine) search with Reciprocal Rank Fusion (RRF).
+1. **Pgvector Hybrid Retrieval Engine** — Sparse (BM25 `ts_rank_cd`) + Dense (pgvector cosine) search with Reciprocal Rank Fusion (RRF).
+2. **Tenant-Isolated Semantic Execution Cache** — Redis-backed embedding similarity cache ahead of vLLM/LiteLLM.
 3. **FastMCP Model Context Protocol Server** — JSON-schema-registered tool interface (`stratops-intel-mcp`) exposing knowledge graph, entity trends, and hybrid retrieval to external swarms.
 
-The architecture is grounded in **deterministic governance**: PostgreSQL Row-Level Security (RLS), declarative list partitioning, OPA/Rego constraint hooks, and pointer-only state preservation in LangGraph workflows. All code paths are covered by a hardened test suite (327 passed, 5 skipped) with zero tolerance for order-dependent test pollution.
+The architecture is **purely neural-first and event-driven**: all extractions, correlations, and syntheses are neural- or statistical-first. No formal logic layers, no OPA/Rego constraints, no deterministic rule engines. Deterministic state is preserved only through pointer-only dicts in LangGraph workflows (~2KB checkpoints) and Redis Stream acknowledgment patterns.
 
 ---
 
-## System Architecture & Data Flow
+## Pure Neural-First Pipeline Topology
+
+| Processing Layer | Technology / Framework | Pattern / Responsibility |
+| :--- | :--- | :--- |
+| **Ingestion** | Playwright, EDGAR RSS, Whisper | Asynchronous raw document & transcript collection |
+| **Extraction** | vLLM (Qwen2.5-7B) + guided JSON | Neural structured extraction & schema parsing |
+| **Correlation** | Neo4j temporal Cypher + LLM | Neural-assisted graph queries & relationship mapping |
+| **Trend / Anomaly** | Statistical (Z-Score/STL) + Isolation Forest + LLM | Hybrid statistical & neural anomaly detection |
+| **Briefing** | vLLM (Qwen2.5-14B) | Multi-document neural synthesis & report generation |
+| **State Machine** | LangGraph (Pointer-Only Dict) | Asynchronous agent orchestration (~2KB state pointer) |
+| **Transport** | Redis Streams + FastAPI Gateway | Event-driven event processing & async API endpoints |
+
+### ASCII Flow Diagram
 
 ```mermaid
 flowchart LR
@@ -61,32 +73,9 @@ flowchart LR
     M1 -->|Hybrid Search| L3a
 ```
 
-**Gateway:** 
-FastAPI gateway with JWT/API-key auth, rate limiting, tenant context.
-**Redis:** 
-Redis Lua sliding-window limiter (`_SLIDING_WINDOW_LUA`).
-**Tenant RLS:** 
-Declarative RLS + list partitioning by `tenant_id`.
-**Semantic Cache:** 
-`cache:semantic:{tenant_id}:{hash}` keys, cosine threshold 0.92.
-**LangGraph:** 
-LangGraph DAG with pointer-only state (<5KB checkpoints).
-**LiteLLM:** 
-LiteLLM execution bus for LLM inference.
-**Worker:** 
-Alert stream worker + DLQ retry with exponential backoff.
-**PostgreSQL:** 
-PostgreSQL 16+ with pgvector extension, RLS, declarative partitioning.
-**Neo4j:** 
-Neo4j 5.24+ knowledge graph with tenant-scoped traversals.
-**MinIO:** 
-MinIO/S3 for pointer-only artifact storage (PDF/PPTX exports).
-**MCP:** 
-FastMCP server (`stratops-intel-mcp`) with 3 registered tools.
-
 ---
 
-## Core Technical Modules & Innovations
+## Week 6 Production Core Subsystems
 
 ### A. Pgvector Hybrid Search Engine (`backend/db/vector_store.py`)
 
@@ -135,28 +124,18 @@ The `FastMCP("stratops-intel-mcp")` server exposes three registered tools via JS
 
 | Tool | Signature | Description |
 |------|-----------|-------------|
-| `query_knowledge_graph` | `query_knowledge_graph(tenant_id: str, entity_name: str, depth: int = 2) -> dict` | Neo4j subgraph traversal centered on `entity_name` within `depth` hops. Enforces `WHERE n.tenant_id = $tid`. |
-| `get_entity_trends` | `get_entity_trends(tenant_id: str, entity_id: str, timeframe_days: int = 30) -> dict` | Invokes `TrendAnalyzerNode` for time-series signal evaluation (Z-scores, STL decomposition, LLM narrative). |
+| `query_knowledge_graph` | `query_knowledge_graph(tenant_id: str, entity_name: str, depth: int = 2) -> dict` | Neo4j temporal subgraph traversal centered on `entity_name` within `depth` hops. Enforces `WHERE n.tenant_id = $tid`. |
+| `get_entity_trends` | `get_entity_trends(tenant_id: str, entity_id: str, timeframe_days: int = 30) -> dict` | Invokes the `TrendAnalyzerNode` for time-series signal evaluation (Z-scores, STL decomposition, LLM narrative). |
 | `run_sec_hybrid_retrieval` | `run_sec_hybrid_retrieval(tenant_id: str, query: str) -> dict` | Delegates to `VectorStore.hybrid_search()` with RRF reranking. |
 
 All tools generate full JSON schema automatically via the FastMCP decorators and are discoverable via `list_tools()`.
 
 ---
 
-### D. Deterministic Governance & Tenant RLS
-
-- **PostgreSQL Row-Level Security (RLS)**: Declarative `ENABLE ROW LEVEL SECURITY` on all data tables with policy `USING (tenant_id = current_setting('app.tenant_id'))`. No application-level bypass possible.
-- **Declarative Partitioning**: Tables partitioned by `tenant_id` via `CREATE TABLE ... PARTITION BY LIST (tenant_id)`. Each partition has its own pgvector HNSW index — no cross-tenant index contention.
-- **OPA/Rego Constraint Hooks**: Declarative policy-as-code for cross-cutting concerns (e.g., "no entity may be created without `valid_from`/`valid_to` bounds").
-- **Pointer-Only State in LangGraph**: Workflow state contains only MinIO/S3 URIs (not full payloads). Checkpoints are < 5KB vs ~1.5MB raw payloads, enabling horizontal scaling of LangGraph workers.
-- **Exactly-Once Semantics**: Redis Streams consumer groups with `xack` acknowledgment. DLQ routing for failed messages.
-
----
-
 ## Configuration & Environment Reference
 
 | Variable | Default | Description |
-|----------|---------|-------------|
+|---|---|---|
 | `DATABASE_URL` | `postgresql+asyncpg://localhost/stratops_intel` | AsyncSQLAlchemy DSN with pgvector enabled |
 | `NEO4J_URI` | `neo4j://localhost:7687` | Neo4j Bolt URI |
 | `NEO4J_USER` | `neo4j` | Neo4j auth user |
@@ -217,7 +196,7 @@ mypy backend/ --ignore-missing-imports
 ```
 
 - `ruff`: Pre-existing style issues only (no new violations from v0.6.0 additions).
-- `mypy`: 1 pre-existing alembic module-mapping issue (not related to core logic).
+- `mypy`: 1 pre-existing alembic module mapping issue (not related to core logic).
 
 ### Post-Verification Checklist
 
@@ -250,10 +229,6 @@ stratops-intel/
 ├── bentoml/                          # BentoML + vLLM model services
 ├── frontend/                         # Next.js 14 App Router dashboard
 ├── docker/                           # Docker Compose definitions
-│   ├── postgres                      # PostgreSQL 16 + pgvector
-│   ├── redis                         # Lua sliding-window rate limiter
-│   ├── neo4j                         # Temporal knowledge graph
-│   └── minio                         # S3-compat artifact storage
 ├── docs/                             # ADRs, benchmarks, deployment guides
 ├── benchmarks/                       # Performance benchmarks (pre-v0.6.0)
 └── README.md                         # This file
@@ -263,7 +238,7 @@ stratops-intel/
 
 ## Portfolio Narrative
 
-> **"For regulated domains, I build deterministic state machines with symbolic kernels. For intelligence synthesis, I build event-driven platforms with BentoML + vLLM model meshes and temporal knowledge graphs. I choose the architecture to fit the problem's non-functional requirements — not the other way around."**
+> **"For regulated domains, I build deterministic event-driven platforms with BentoML + vLLM model meshes and temporal knowledge graphs. I choose the architecture to fit the problem's non-functional requirements — not the other way around."**
 
 ---
 
