@@ -123,8 +123,6 @@ $$RRF\_Score(d) = \sum_{m \in M} \frac{1}{k + r_m(d)}$$
 
 where `r_m(d)` is the 1-based rank of document `d` in ranking `m`, and `k = 60` is the RRF constant. The blended rank incorporates a weight `alpha \in [0,1]`:
 
-$$\text{blended\_rank} = \alpha \cdot r_{\text{sparse}} + (1 - \alpha) \cdot r_{\text{dense}}$$
-
 with default `alpha = 0.5` (equal weighting). Results are sorted by descending fused RRF score.
 
 **Multi-Tenant Isolation**: All queries enforce `WHERE tenant_id = :tenant_id` via declarative list partitioning on the `tenant_id` column. Cross-tenant leakage is impossible at the DB level.
