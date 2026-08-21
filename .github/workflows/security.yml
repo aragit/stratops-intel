@@ -12,10 +12,14 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: pypa/gh-action-pip-audit@v1.0.0
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          inputs: backend/requirements.txt
-          no-deps: true
+          python-version: '3.11'
+      - name: Run pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.txt --no-deps --strict
 
   trufflehog:
     runs-on: ubuntu-latest
