@@ -345,10 +345,13 @@ pytest==9.1.1
     # via
     #   pytest-asyncio
     #   pytest-cov
+    #   pytest-timeout
     #   stratops-intel-backend (pyproject.toml)
 pytest-asyncio==1.4.0
     # via stratops-intel-backend (pyproject.toml)
 pytest-cov==7.1.0
+    # via stratops-intel-backend (pyproject.toml)
+pytest-timeout==2.4.0
     # via stratops-intel-backend (pyproject.toml)
 python-dateutil==2.9.0.post0
     # via
