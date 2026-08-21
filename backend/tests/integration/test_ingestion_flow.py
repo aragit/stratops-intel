@@ -5,23 +5,28 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import date, datetime
-from typing import Any, AsyncGenerator
-from uuid import UUID, uuid4
+from datetime import datetime
+from typing import Any
+from uuid import uuid4
 
 import pytest
 import redis.asyncio as aioredis
 import structlog
-from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.pool import NullPool
 
-from db.models import Signal, Tenant, User
+from backend.db.models import Signal, Tenant
+from backend.streams.keys import StreamKeyBuilder
+from backend.workers.ingestion_worker import IngestionWorker
 from ingestion.adapters import AdapterRegistry
-from ingestion.base import IngestionResult, NormalizedSignal, RawSignal
-from streams.keys import StreamKeyBuilder
-from workers.ingestion_worker import IngestionWorker
 
 logger = structlog.get_logger(__name__)
 
@@ -157,7 +162,7 @@ async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
                 END IF;
             END $$;
         """))
-    
+
     yield engine
     await engine.dispose()
 
@@ -295,7 +300,6 @@ class TestWebCrawlToSignal:
         mock_playwright = MockPlaywright(sample_html)
 
         # Create test message
-        from streams.keys import StreamKeyBuilder
         key_builder = StreamKeyBuilder()
         stream_name = key_builder.ingestion_stream(tenant_id, "web")
 
@@ -474,4 +478,3 @@ class TestWebCrawlToSignal:
 
 
 # Need datetime import
-from datetime import datetime

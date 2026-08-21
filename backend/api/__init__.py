@@ -3,6 +3,6 @@
 Exports the FastAPI application instance.
 """
 
-from api.gateway import app
+from backend.api.gateway import app
 
 __all__ = ["app"]

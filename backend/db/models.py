@@ -17,9 +17,9 @@ from sqlalchemy import (
     Index,
     String,
     UniqueConstraint,
+    desc,
     func,
     text,
-    desc,
 )
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -168,7 +168,7 @@ class APIKey(Base):
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
     )
-    user_id: Mapped[Optional[UUID]] = mapped_column(
+    user_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
@@ -178,10 +178,10 @@ class APIKey(Base):
     scopes: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False, default=dict, server_default=text("'{}'")
     )
-    expires_at: Mapped[Optional[datetime]] = mapped_column(
+    expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
-    last_used_at: Mapped[Optional[datetime]] = mapped_column(
+    last_used_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     is_active: Mapped[bool] = mapped_column(
@@ -270,7 +270,7 @@ class Signal(Base):
         nullable=False,
     )
     source_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    source_url: Mapped[Optional[str]] = mapped_column(String(2048), nullable=True)
+    source_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     content_uri: Mapped[str] = mapped_column(String(500), nullable=False)
     fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
     structured_payload: Mapped[dict[str, Any]] = mapped_column(
@@ -325,10 +325,10 @@ class BriefingModel(Base):
     content_md_uri: Mapped[str] = mapped_column(String(500), nullable=False)
     version: Mapped[int] = mapped_column(default=1, nullable=False)
     is_current: Mapped[bool] = mapped_column(default=True, nullable=False)
-    generated_by: Mapped[Optional[dict[str, Any]]] = mapped_column(
+    generated_by: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, nullable=True
     )
-    briefing_metadata: Mapped[Optional[dict[str, Any]]] = mapped_column(
+    briefing_metadata: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(

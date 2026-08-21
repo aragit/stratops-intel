@@ -6,10 +6,9 @@ implement, plus the registry for managing adapter plugins.
 
 from __future__ import annotations
 
-import asyncio
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, ClassVar, NamedTuple, Optional
+from typing import Any, ClassVar, NamedTuple
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
@@ -51,7 +50,7 @@ class IngestionResult(NamedTuple):
 
     raw_data: bytes
     content_type: str
-    next_cursor: Optional[str]
+    next_cursor: str | None
     metadata: dict[str, Any]
 
 
@@ -73,9 +72,9 @@ class RawSignal(BaseModel):
     model_config = ConfigDict(extra="allow", frozen=True)
 
     source_type: str = Field(..., description="Adapter source type identifier")
-    source_url: Optional[str] = Field(default=None, description="Original source URL")
+    source_url: str | None = Field(default=None, description="Original source URL")
     raw_content: bytes = Field(..., description="Raw payload (goes to MinIO)")
-    fingerprint: Optional[str] = Field(default=None, description="Dedup fingerprint")
+    fingerprint: str | None = Field(default=None, description="Dedup fingerprint")
     collected_at: datetime = Field(default_factory=datetime.utcnow, description="Collection timestamp")
     metadata: dict[str, Any] = Field(default_factory=dict, description="Adapter-specific metadata")
 
@@ -100,7 +99,7 @@ class NormalizedSignal(BaseModel):
     model_config = ConfigDict(extra="allow", frozen=True)
 
     source_type: str = Field(..., description="Adapter source type identifier")
-    source_url: Optional[str] = Field(default=None, description="Original source URL")
+    source_url: str | None = Field(default=None, description="Original source URL")
     content_uri: str = Field(..., description="S3/MinIO URI (pointer-only, REQUIRED)")
     fingerprint: str = Field(..., description="Dedup fingerprint (REQUIRED)")
     structured_payload: dict[str, Any] = Field(
@@ -136,7 +135,7 @@ class SourceAdapter(ABC):
             raise TypeError(f"{cls.__name__} must define a 'config_schema' class attribute")
 
     @abstractmethod
-    async def fetch(self, config: dict[str, Any], cursor: Optional[str] = None) -> IngestionResult:
+    async def fetch(self, config: dict[str, Any], cursor: str | None = None) -> IngestionResult:
         """Fetch raw data from the source.
 
         Args:

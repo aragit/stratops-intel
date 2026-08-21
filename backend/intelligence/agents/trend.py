@@ -5,11 +5,10 @@ Statistical trend detection on time-series signals with LLM narrative generation
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,10 +26,10 @@ class TrendResult(BaseModel):
     trend_type: str = Field(..., description="Type: pricing, hiring, mention_frequency, sentiment")
     entity_name: str = Field(..., description="Entity name (company, product, etc.)")
     direction: str = Field(..., description="Direction: up, down, stable, anomalous")
-    z_score: Optional[float] = Field(None, description="Z-score of recent vs historical")
+    z_score: float | None = Field(None, description="Z-score of recent vs historical")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence 0.0-1.0")
     narrative: str = Field(..., description="LLM-generated narrative explanation")
-    supporting_signals: List[str] = Field(default_factory=list, description="Signal URIs")
+    supporting_signals: list[str] = Field(default_factory=list, description="Signal URIs")
 
 
 class TrendAnalyzerNode:
@@ -97,7 +96,7 @@ class TrendAnalyzerNode:
         window_end = datetime.utcnow()
         window_start = window_end - timedelta(days=self.lookback_days)
 
-        all_trends: List[TrendResult] = []
+        all_trends: list[TrendResult] = []
 
         # 1. Pricing trends
         pricing_trends = await self._analyze_pricing_trends(
@@ -151,7 +150,7 @@ class TrendAnalyzerNode:
         tenant_id: str,
         window_start: datetime,
         window_end: datetime,
-    ) -> List[TrendResult]:
+    ) -> list[TrendResult]:
         """Analyze pricing trends from PRICED_AT relationships."""
         query = """
         SELECT 
@@ -177,7 +176,7 @@ class TrendAnalyzerNode:
             )
 
             # Group by company+product and compute trends
-            trends = self._compute_time_series_trends(
+            trends = await self._compute_time_series_trends(
                 rows,
                 group_keys=["company", "product"],
                 value_key="price",
@@ -199,7 +198,7 @@ class TrendAnalyzerNode:
         tenant_id: str,
         window_start: datetime,
         window_end: datetime,
-    ) -> List[TrendResult]:
+    ) -> list[TrendResult]:
         """Analyze hiring velocity trends from EMPLOYED_AT relationships."""
         query = """
         SELECT 
@@ -224,7 +223,7 @@ class TrendAnalyzerNode:
                 window_end,
             )
 
-            trends = self._compute_time_series_trends(
+            trends = await self._compute_time_series_trends(
                 rows,
                 group_keys=["company"],
                 value_key="hires",
@@ -246,7 +245,7 @@ class TrendAnalyzerNode:
         tenant_id: str,
         window_start: datetime,
         window_end: datetime,
-    ) -> List[TrendResult]:
+    ) -> list[TrendResult]:
         """Analyze mention frequency trends from MENTIONED_IN relationships."""
         query = """
         SELECT 
@@ -270,7 +269,7 @@ class TrendAnalyzerNode:
                 window_end,
             )
 
-            trends = self._compute_time_series_trends(
+            trends = await self._compute_time_series_trends(
                 rows,
                 group_keys=["company"],
                 value_key="mentions",
@@ -292,7 +291,7 @@ class TrendAnalyzerNode:
         tenant_id: str,
         window_start: datetime,
         window_end: datetime,
-    ) -> List[TrendResult]:
+    ) -> list[TrendResult]:
         """Analyze sentiment trends from earnings call analysis."""
         query = """
         SELECT 
@@ -317,7 +316,7 @@ class TrendAnalyzerNode:
                 window_end,
             )
 
-            trends = self._compute_time_series_trends(
+            trends = await self._compute_time_series_trends(
                 rows,
                 group_keys=["company"],
                 value_key="avg_sentiment",
@@ -334,14 +333,31 @@ class TrendAnalyzerNode:
             )
             return []
 
-    def _compute_time_series_trends(
+    @staticmethod
+    def _compute_z_score(values: list[float]) -> float:
+        """Compute Z-score of the most recent value vs the historical segment.
+
+        The historical segment is ``values[:-1]`` (population std). Returns
+        0.0 for flat or single-value series.
+        """
+        if len(values) < 2:
+            return 0.0
+        recent = values[-1]
+        historical = values[:-1]
+        mean = sum(historical) / len(historical)
+        std = (sum((x - mean) ** 2 for x in historical) / len(historical)) ** 0.5
+        if std == 0:
+            return 0.0
+        return (recent - mean) / std
+
+    async def _compute_time_series_trends(
         self,
-        rows: List[Any],
-        group_keys: List[str],
+        rows: list[Any],
+        group_keys: list[str],
         value_key: str,
         trend_type: str,
         entity_template: str,
-    ) -> List[TrendResult]:
+    ) -> list[TrendResult]:
         """Compute Z-scores and detect trends from time-series data.
 
         Returns list of TrendResult objects.
@@ -371,15 +387,7 @@ class TrendAnalyzerNode:
                 continue
 
             # Compute Z-score for most recent value
-            recent = values[-1]
-            historical = values[:-1]
-            mean = sum(historical) / len(historical)
-            std = (sum((x - mean) ** 2 for x in historical) / len(historical)) ** 0.5
-
-            if std == 0:
-                z_score = 0.0
-            else:
-                z_score = (recent - mean) / std
+            z_score = self._compute_z_score(values)
 
             # Determine direction
             if z_score > self.z_threshold:
@@ -406,7 +414,7 @@ class TrendAnalyzerNode:
             entity_name = entity_template.format(**dict(zip(group_keys, key)))
 
             # Build narrative via LLM (placeholder for now)
-            narrative = self._generate_trend_narrative(
+            narrative = await self._generate_trend_narrative(
                 trend_type=trend_type,
                 entity_name=entity_name,
                 z_score=z_score,
@@ -429,7 +437,7 @@ class TrendAnalyzerNode:
 
         return trends
 
-    def _stl_residual(self, values: List[float]) -> List[float]:
+    def _stl_residual(self, values: list[float]) -> list[float]:
         """Simple STL-like residual calculation (placeholder).
 
         Returns residuals after removing trend and seasonal components.
@@ -485,8 +493,8 @@ class TrendAnalyzerNode:
         self,
         tenant_id: str,
         trace_id: str,
-        trends: List[TrendResult],
-    ) -> List[str]:
+        trends: list[TrendResult],
+    ) -> list[str]:
         """Write trend results to MinIO as JSON."""
         if not trends:
             return []

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from datetime import datetime
 from unittest import mock
 
 import pytest
@@ -44,7 +42,8 @@ class TestBriefingRepository:
 
         result = await repo.create(briefing)
 
-        assert isinstance(result, mock.MagicMock)
+        assert isinstance(result, BriefingModel)
+        assert result.title == "Test Briefing"
         mock_session.add.assert_called_once()
         mock_session.flush.assert_called_once()
         mock_session.refresh.assert_called_once()

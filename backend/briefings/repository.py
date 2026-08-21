@@ -5,16 +5,14 @@ Provides CRUD operations for briefings with tenant isolation.
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from db.models import BriefingModel
-from db.tenant_session import get_tenant_session
+from backend.db.models import BriefingModel
 
 
 class BriefingRepository:
@@ -54,7 +52,7 @@ class BriefingRepository:
         await self.session.refresh(model)
         return model
 
-    async def get_current(self, tenant_id: UUID, title: str) -> Optional[BriefingModel]:
+    async def get_current(self, tenant_id: UUID, title: str) -> BriefingModel | None:
         """Get the current (is_current=True) version of a briefing by title.
 
         Args:
@@ -73,7 +71,7 @@ class BriefingRepository:
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def get_version(self, tenant_id: UUID, title: str, version: int) -> Optional[BriefingModel]:
+    async def get_version(self, tenant_id: UUID, title: str, version: int) -> BriefingModel | None:
         """Get a specific version of a briefing by title.
 
         Args:
@@ -99,7 +97,7 @@ class BriefingRepository:
         limit: int = 50,
         offset: int = 0,
         is_current_only: bool = False,
-    ) -> List[Any]:
+    ) -> list[Any]:
         """List briefings for a tenant with pagination.
 
         Args:
@@ -111,7 +109,7 @@ class BriefingRepository:
         Returns:
             List of BriefingModel objects
         """
-        stmt = select(BriefingModel).order_by(0)  # Order by created_at DESC would be better but we don't have that column in the select
+        stmt = select(BriefingModel).order_by(BriefingModel.created_at.desc())
 
         if is_current_only:
             stmt = stmt.where(BriefingModel.is_current.is_(True))
@@ -120,7 +118,7 @@ class BriefingRepository:
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def list_versions(self, tenant_id: UUID, title: str) -> List[Any]:
+    async def list_versions(self, tenant_id: UUID, title: str) -> list[Any]:
         """List all versions of a briefing by title.
 
         Args:

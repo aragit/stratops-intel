@@ -7,10 +7,8 @@ extracting the current user from either a JWT bearer token or an
 
 from __future__ import annotations
 
-import hashlib
 import os
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import bcrypt
@@ -20,9 +18,9 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 
-from db.dependencies import verify_api_key
-from db.models import User
-from db.tenant_session import get_session_manager
+from backend.db.dependencies import verify_api_key
+from backend.db.models import User
+from backend.db.tenant_session import get_session_manager
 
 logger = structlog.get_logger(__name__)
 
@@ -49,10 +47,10 @@ def create_access_token(
         The encoded JWT string.
     """
     to_encode = dict(data)
-    expire = datetime.now(timezone.utc) + (
+    expire = datetime.now(UTC) + (
         expires_delta or timedelta(minutes=_ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    to_encode.update({"exp": expire, "iat": datetime.now(timezone.utc), "type": "access"})
+    to_encode.update({"exp": expire, "iat": datetime.now(UTC), "type": "access"})
     token = jwt.encode(to_encode, _SECRET_KEY, algorithm=_ALGORITHM)
     logger.debug("access_token_created", sub=data.get("sub"), expires=expire.isoformat())
     return token
@@ -68,8 +66,8 @@ def create_refresh_token(data: dict) -> str:
         The encoded JWT string.
     """
     to_encode = dict(data)
-    expire = datetime.now(timezone.utc) + timedelta(days=_REFRESH_TOKEN_EXPIRE_DAYS)
-    to_encode.update({"exp": expire, "iat": datetime.now(timezone.utc), "type": "refresh"})
+    expire = datetime.now(UTC) + timedelta(days=_REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire, "iat": datetime.now(UTC), "type": "refresh"})
     token = jwt.encode(to_encode, _SECRET_KEY, algorithm=_ALGORITHM)
     logger.debug("refresh_token_created", sub=data.get("sub"), expires=expire.isoformat())
     return token

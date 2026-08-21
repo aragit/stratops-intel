@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import time
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import structlog
 from pydantic import BaseModel, Field
@@ -23,12 +23,12 @@ class CorrelationResult(BaseModel):
     """A detected temporal correlation between entities."""
 
     correlation_type: str = Field(..., description="Type: pricing, talent, co_mention, patent")
-    entity_a: Dict[str, Any] = Field(..., description="First entity: type, id, name")
-    entity_b: Dict[str, Any] = Field(..., description="Second entity: type, id, name")
+    entity_a: dict[str, Any] = Field(..., description="First entity: type, id, name")
+    entity_b: dict[str, Any] = Field(..., description="Second entity: type, id, name")
     strength: float = Field(..., ge=0.0, le=1.0, description="Correlation strength 0.0-1.0")
-    evidence: List[str] = Field(default_factory=list, description="Signal URIs supporting this correlation")
+    evidence: list[str] = Field(default_factory=list, description="Signal URIs supporting this correlation")
     valid_from: datetime = Field(..., description="Correlation start timestamp")
-    valid_to: Optional[datetime] = Field(None, description="Correlation end timestamp")
+    valid_to: datetime | None = Field(None, description="Correlation end timestamp")
 
 
 class CorrelationEngineNode:
@@ -88,7 +88,7 @@ class CorrelationEngineNode:
         window_start = window_end - timedelta(days=self.time_window_days)
 
         # Run correlation queries
-        all_correlations: List[CorrelationResult] = []
+        all_correlations: list[CorrelationResult] = []
 
         # 1. Pricing correlation
         pricing_correlations = await self._find_pricing_correlations(
@@ -145,7 +145,7 @@ class CorrelationEngineNode:
         tenant_id: str,
         window_start: datetime,
         window_end: datetime,
-    ) -> List[CorrelationResult]:
+    ) -> list[CorrelationResult]:
         """Find competitor pricing correlations for same product.
 
         Cypher pattern:
@@ -208,7 +208,7 @@ class CorrelationEngineNode:
         tenant_id: str,
         window_start: datetime,
         window_end: datetime,
-    ) -> List[CorrelationResult]:
+    ) -> list[CorrelationResult]:
         """Find talent flow between companies (person moves within 90 days).
 
         Cypher pattern:
@@ -270,7 +270,7 @@ class CorrelationEngineNode:
         tenant_id: str,
         window_start: datetime,
         window_end: datetime,
-    ) -> List[CorrelationResult]:
+    ) -> list[CorrelationResult]:
         """Find co-mention correlations (companies in same signal within 7 days).
 
         Cypher pattern:
@@ -326,7 +326,7 @@ class CorrelationEngineNode:
         tenant_id: str,
         window_start: datetime,
         window_end: datetime,
-    ) -> List[CorrelationResult]:
+    ) -> list[CorrelationResult]:
         """Find patent citation correlations (placeholder for future patent adapter).
 
         This is a placeholder - the patent adapter will create CITES relationships
@@ -356,8 +356,8 @@ class CorrelationEngineNode:
         self,
         tenant_id: str,
         trace_id: str,
-        correlations: List[CorrelationResult],
-    ) -> List[str]:
+        correlations: list[CorrelationResult],
+    ) -> list[str]:
         """Write correlation results to MinIO as JSON.
 
         Returns list of S3 URIs.
@@ -395,7 +395,7 @@ class CorrelationEngineNode:
             )
             return []
 
-    def _build_graph_deltas(self, correlations: List[CorrelationResult]) -> List[str]:
+    def _build_graph_deltas(self, correlations: list[CorrelationResult]) -> list[str]:
         """Build correlation graph deltas for GraphWriterWorker.
 
         Returns list of Cypher MERGE statements as strings.

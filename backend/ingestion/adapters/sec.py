@@ -10,7 +10,7 @@ import hashlib
 import re
 import urllib.parse
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -25,7 +25,8 @@ except ImportError:
 
 # Playwright for rendering filing pages
 try:
-    from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeoutError
+    from playwright.async_api import Browser, Page, async_playwright
+    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
@@ -43,14 +44,14 @@ try:
 except ImportError:
     BS4_AVAILABLE = False
 
-from ingestion.base import (
-    AdapterRegistry,
+from ..base import (
     IngestionResult,
     NormalizedSignal,
     RawSignal,
     SourceAdapter,
     register_adapter,
 )
+
 
 # Lazy import for aiobotocore
 def _get_aiobotocore():
@@ -79,8 +80,8 @@ class SECConfig(BaseModel):
     ciks: list[str] = Field(..., min_length=1, description="CIK numbers to track")
     form_types: list[str] = Field(default=["10-K", "10-Q", "8-K"], description="Form types to fetch")
     lookback_days: int = Field(default=30, ge=1, le=365, description="Days to look back")
-    filing_date_from: Optional[date] = Field(default=None, description="Explicit start date")
-    filing_date_to: Optional[date] = Field(default=None, description="Explicit end date")
+    filing_date_from: date | None = Field(default=None, description="Explicit start date")
+    filing_date_to: date | None = Field(default=None, description="Explicit end date")
 
     @field_validator("ciks", mode="before")
     @classmethod
@@ -108,7 +109,7 @@ class SECFilingAdapter(SourceAdapter):
     _USER_AGENT = "StratOps-Intel/1.0 (contact@example.com)"
 
     def __init__(self) -> None:
-        self._browser: Optional[Browser] = None
+        self._browser: Browser | None = None
         self._playwright = None
         self._last_request_time = 0.0
 
@@ -154,7 +155,7 @@ class SECFilingAdapter(SourceAdapter):
         }
         return f"{self._EDGAR_BASE}?{urllib.parse.urlencode(params)}"
 
-    async def fetch(self, config: dict[str, Any], cursor: Optional[str] = None) -> IngestionResult:
+    async def fetch(self, config: dict[str, Any], cursor: str | None = None) -> IngestionResult:
         """Fetch SEC filings from EDGAR Atom feeds.
 
         Args:
@@ -257,7 +258,7 @@ class SECFilingAdapter(SourceAdapter):
                 return match.group(1).zfill(10)
         return ""
 
-    def _parse_filing_date(self, entry: Any) -> Optional[date]:
+    def _parse_filing_date(self, entry: Any) -> date | None:
         """Parse filing date from entry."""
         for field in ["filing_date", "updated", "published", "date"]:
             if hasattr(entry, field):

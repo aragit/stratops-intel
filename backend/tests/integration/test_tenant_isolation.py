@@ -8,21 +8,17 @@ testcontainers.
 from __future__ import annotations
 
 import hashlib
-import json
-import os
-from typing import AsyncGenerator
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 import redis.asyncio as aioredis
 import structlog
-from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from db.models import APIKey, Base, Tenant, User
-from streams.base import StreamConsumer, StreamProducer
-from streams.keys import StreamKeyBuilder
+from backend.db.models import APIKey
+from backend.streams.base import StreamConsumer, StreamProducer
+from backend.streams.keys import StreamKeyBuilder
 
 logger = structlog.get_logger(__name__)
 
@@ -55,7 +51,7 @@ class TestTenantRLSEnforcement:
 
             tenant_ids_in_result = [r[0] for r in rows]
             assert test_tenant_a["id"] not in tenant_ids_in_result, (
-                f"Tenant B should not see Tenant A's users"
+                "Tenant B should not see Tenant A's users"
             )
             assert test_tenant_b["id"] in tenant_ids_in_result
 

@@ -5,7 +5,6 @@ Tests deduplication logic, batch flush triggers, and graceful shutdown.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from unittest import mock
 
@@ -13,37 +12,51 @@ import pytest
 
 from backend.workers.graph_writer import (
     EntityUpdate,
-    RelationshipUpdate,
-    MicroBatchBuffer,
     GraphWriterWorker,
+    MicroBatchBuffer,
+    RelationshipUpdate,
 )
 
 
 def _make_mock_redis():
-    """Create a mock Redis client that works with async await expressions."""
+    """Create a stateful mock Redis client with async methods and call tracking."""
+    store: dict = {}
     m = mock.MagicMock()
-    # lpush should return a coroutine that resolves to None
-    async def _lpush(*args, **kwargs):
-        return None
-    m.lpush = _lpush
+    m._store = store
 
-    # lrange should return a coroutine that resolves to a list
-    async def _lrange(*args, **kwargs):
-        return []
-    m.lrange = _lrange
+    async def _lpush(key, *values):
+        lst = store.setdefault(key, [])
+        for v in values:
+            lst.insert(0, v)
+        return len(lst)
 
-    # delete should return a coroutine that resolves to None
-    async def _delete(*args, **kwargs):
-        return None
-    m.delete = _delete
+    m.lpush = mock.AsyncMock(side_effect=_lpush)
 
-    # xack should return a coroutine that resolves to None
-    async def _xack(*args, **kwargs):
-        return None
-    m.xack = _xack
+    async def _lrange(key, start, end):
+        lst = store.get(key, [])
+        if end == -1:
+            return list(lst[start:])
+        return list(lst[start:end + 1])
+
+    m.lrange = mock.AsyncMock(side_effect=_lrange)
+
+    async def _delete(*keys):
+        count = 0
+        for key in keys:
+            if key in store:
+                del store[key]
+                count += 1
+        return count
+
+    m.delete = mock.AsyncMock(side_effect=_delete)
+
+    m.xack = mock.AsyncMock(return_value=None)
+    m.xadd = mock.AsyncMock(return_value="0-1")
+    m.xgroup_create = mock.AsyncMock(return_value=True)
+    m.xreadgroup = mock.AsyncMock(return_value={})
 
     # _del_method for backward compatibility
-    m._del_method = _delete
+    m._del_method = mock.AsyncMock(return_value=None)
 
     return m
 

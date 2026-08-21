@@ -212,7 +212,7 @@ class TestTrendAnalyzerNode:
             {"company": "A", "product": "X", "price": "120", "valid_from": datetime(2024, 1, 5)},
         ]
 
-        trends = trend_analyzer._compute_time_series_trends(
+        trends = await trend_analyzer._compute_time_series_trends(
             rows,
             group_keys=["company", "product"],
             value_key="price",
@@ -233,7 +233,7 @@ class TestTrendAnalyzerNode:
         """Test Z-score calculation logic."""
         # Test data with clear upward trend
         values = [100, 102, 105, 108, 112, 118, 125]
-        
+
         # Manually compute expected
         historical = values[:-1]
         recent = values[-1]
@@ -334,10 +334,11 @@ class TestTrendAnalyzerNode:
     ) -> None:
         """Full call with actual trend data."""
         mock_db_pool.fetch.side_effect = [
-            # Pricing
+            # Pricing (3 checkpoints required for trend detection)
             [
                 {"company": "A", "product": "X", "price": "100", "valid_from": datetime.utcnow()},
                 {"company": "A", "product": "X", "price": "110", "valid_from": datetime.utcnow() + timedelta(days=1)},
+                {"company": "A", "product": "X", "price": "125", "valid_from": datetime.utcnow() + timedelta(days=2)},
             ],
             # Hiring
             [],

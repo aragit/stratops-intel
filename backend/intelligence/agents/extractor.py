@@ -8,9 +8,8 @@ Raw payloads NEVER in state. Checkpoint target < 5KB.
 from __future__ import annotations
 
 import json
-import time
-import asyncio
 import os
+import time
 from typing import TypedDict
 
 # aiobotocore imported lazily inside methods to avoid OpenSSL compatibility issues
@@ -65,7 +64,6 @@ class EntityExtractorNode:
         key = uri_parts[1] if len(uri_parts) > 1 else ""
 
         async with session.create_client("s3", region_name="us-east-1") as client:
-            import io
 
             response = await client.get_object(Bucket=bucket, Key=key)
             content = await response["Body"].read()

@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ingestion.adapters.sec import SECFilingAdapter, SECConfig
-from ingestion.base import IngestionResult, NormalizedSignal, RawSignal
+from ingestion.adapters.sec import SECConfig, SECFilingAdapter
+from ingestion.base import RawSignal
 
 
 class MockPage:

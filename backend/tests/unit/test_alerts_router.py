@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime
 from unittest import mock
@@ -10,12 +9,12 @@ from unittest import mock
 import pytest
 
 from backend.alerts.router import (
+    Alert,
     AlertRouter,
     AlertRouterWorker,
-    SlackChannelConfig,
     EmailChannelConfig,
+    SlackChannelConfig,
     WebhookChannelConfig,
-    Alert,
 )
 
 
@@ -273,7 +272,7 @@ class TestAlertRouter:
             ]
 
             with mock.patch("aiohttp.ClientSession") as mock_session_class:
-                mock_session = mock.AsyncMock()
+                mock_session = mock.MagicMock()
                 mock_session.post.return_value.__aenter__.side_effect = [
                     mock_response_fail,
                     mock_response_success,
@@ -378,3 +377,52 @@ class TestAlertRouterWorker:
         mock_redis.xgroup_create.assert_called_once_with(
             "test-stream", "test-group", id="0", mkstream=True
         )
+    @pytest.mark.asyncio
+    async def test_malformed_payload_dead_lettered(self, worker, mock_redis):
+        """Test that a payload failing Alert validation goes to the DLQ and is acked."""
+        message_id = "1-0"
+        await worker._process_message(message_id, {"alert": {"id": "alert-bad"}})
+
+        mock_redis.xadd.assert_called_once()
+        dlq_key = mock_redis.xadd.call_args[0][0]
+        assert dlq_key == "stratops:tenant:001:alerts:dead"
+
+        dlq_fields = mock_redis.xadd.call_args[0][1]
+        assert dlq_fields["message_id"] == message_id
+        assert "error" in dlq_fields
+        assert json.loads(dlq_fields["payload"]) == {"alert": {"id": "alert-bad"}}
+
+        mock_redis.xack.assert_called_once_with(
+            "stratops:tenant:001:alerts",
+            "cg:alert_router",
+            message_id,
+        )
+
+    @pytest.mark.asyncio
+    async def test_route_failure_dead_lettered(self, worker, mock_redis):
+        """Test that a routing failure sends the alert to the DLQ instead of losing it."""
+        alert_data = {
+            "tenant_id": "001",
+            "rule_id": "rule-123",
+            "rule_name": "Test Rule",
+            "severity": "warning",
+            "message": "Test alert message",
+        }
+        with mock.patch.object(worker.router, "route", side_effect=RuntimeError("slack down")):
+            await worker._process_message("2-0", {"alert": alert_data})
+
+        mock_redis.xadd.assert_called_once()
+        dlq_key = mock_redis.xadd.call_args[0][0]
+        assert dlq_key == "stratops:tenant:001:alerts:dead"
+        assert "slack down" in mock_redis.xadd.call_args[0][1]["error"]
+
+        mock_redis.xack.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_dlq_failure_still_acks(self, worker, mock_redis):
+        """Test the alert is acked even when writing to the DLQ itself fails."""
+        mock_redis.xadd.side_effect = RuntimeError("redis write failed")
+
+        await worker._process_message("3-0", {"alert": {"id": "alert-bad"}})
+
+        mock_redis.xack.assert_called_once()

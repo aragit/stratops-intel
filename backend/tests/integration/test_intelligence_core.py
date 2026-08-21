@@ -6,29 +6,29 @@ Verifies pointer-only state throughout the pipeline.
 
 from __future__ import annotations
 
-import json
 import asyncio
-import os
+import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 import pytest
+import respx
+from testcontainers.minio import MinIOContainer
+from testcontainers.neo4j import Neo4jContainer
 from testcontainers.postgres import PostgresContainer
 from testcontainers.redis import RedisContainer
-from testcontainers.neo4j import Neo4jContainer
-from testcontainers.minio import MinIOContainer
-import respx
+
+from backend.db.neo4j_client import Neo4jClient
+from backend.intelligence.agents.anomaly import AnomalyDetectorNode
+from backend.intelligence.agents.correlation import CorrelationEngineNode
 
 # Import our modules
-from backend.intelligence.agents.extractor import EntityExtractorNode, IntelligenceState
-from backend.intelligence.agents.correlation import CorrelationEngineNode, CorrelationResult
-from backend.intelligence.agents.trend import TrendAnalyzerNode, TrendResult
-from backend.intelligence.agents.anomaly import AnomalyDetectorNode, AnomalyResult
-from backend.intelligence.agents.extractor import build_extractor_graph
-from backend.db.neo4j_client import Neo4jClient
-from backend.workers.graph_writer import GraphWriterWorker, EntityUpdate, RelationshipUpdate
-from bentoml.services.summarization import EmbeddingRequest
+from backend.intelligence.agents.extractor import (
+    EntityExtractorNode,
+    IntelligenceState,
+    build_extractor_graph,
+)
+from backend.intelligence.agents.trend import TrendAnalyzerNode
 
 # Test fixtures
 
@@ -74,7 +74,7 @@ def minio_container():
     subprocess.run([
         "mc", "alias", "set", "testminio", url, "minioadmin", "minioadmin"
     ], check=True)
-    for bucket in ["stratops-signals", "stratops-extracted", "stratops-correlations", 
+    for bucket in ["stratops-signals", "stratops-extracted", "stratops-correlations",
                    "stratops-trends", "stratops-anomalies"]:
         subprocess.run([
             "mc", "mb", f"testminio/{bucket}"
@@ -226,7 +226,7 @@ class TestFullPipeline:
         # Step 2: Run EntityExtractorNode
         # ================================
         extractor_node = EntityExtractorNode()
-        
+
         # Mock the BentoML call
         with mock.patch.object(extractor_node, '_call_bentoml_extraction') as mock_extract:
             mock_extract.return_value = [
@@ -245,7 +245,7 @@ class TestFullPipeline:
             # Mock MinIO upload
             with mock.patch.object(extractor_node, '_upload_to_minio') as mock_upload:
                 mock_upload.return_value = "s3://stratops-extracted-test/trace-001/entities.json"
-                
+
                 state: IntelligenceState = {
                     "tenant_id": test_tenant,
                     "trace_id": "trace-001",
@@ -261,15 +261,15 @@ class TestFullPipeline:
                 # Verify extraction
                 assert len(result_state["extracted_entities"]) == 4
                 assert result_state["extracted_entities"][0]["company_name"] == "Apple Inc."
-                
+
                 # Verify pointer-only: no raw content in state
                 state_json = json.dumps(result_state, default=str)
                 assert "Apple Inc. reported record quarterly revenue" not in state_json
-                
+
                 # Verify state size < 5KB
                 state_size = len(state_json.encode("utf-8"))
                 assert state_size < 5000, f"State size {state_size} exceeds 5KB limit"
-                
+
                 # Verify content URIs added
                 assert len(result_state["content_uris"]) == 1
                 assert result_state["content_uris"][0].startswith("s3://stratops-extracted-")
@@ -416,7 +416,7 @@ class TestFullPipeline:
         assert "Tim Cook said the company is seeing strong demand" not in final_json
         assert "Microsoft reported Azure growth" not in final_json
 
-        print(f"✅ Full pipeline test passed!")
+        print("✅ Full pipeline test passed!")
         print(f"   Final state size: {len(final_json)} bytes (< 5KB)")
         print(f"   Content URIs: {len(result_state['content_uris'])}")
         print(f"   Correlation deltas: {len(result_state['correlation_graph_delta'])}")

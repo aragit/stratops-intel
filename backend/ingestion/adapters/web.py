@@ -7,17 +7,17 @@ MinIO pointers for raw HTML storage.
 from __future__ import annotations
 
 import hashlib
-import logging
 import urllib.parse
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 # Playwright is optional - handle gracefully if not installed
 try:
-    from playwright.async_api import async_playwright, Browser, Page, TimeoutError as PlaywrightTimeoutError
+    from playwright.async_api import Browser, Page, async_playwright
+    from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
     PLAYWRIGHT_AVAILABLE = True
 except ImportError:
@@ -43,14 +43,14 @@ try:
 except ImportError:
     BS4_AVAILABLE = False
 
-from ingestion.base import (
-    AdapterRegistry,
+from ..base import (
     IngestionResult,
     NormalizedSignal,
     RawSignal,
     SourceAdapter,
     register_adapter,
 )
+
 
 # Lazy imports - avoid module-level import conflicts
 def _get_aiobotocore():
@@ -89,7 +89,7 @@ class WebMonitorConfig(BaseModel):
     check_interval_seconds: int = Field(default=3600, ge=60, description="Re-check interval")
     user_agent: str = Field(default="StratOps-Intel/1.0", description="User-Agent header")
     max_depth: int = Field(default=0, ge=0, le=3, description="Maximum crawl depth")
-    selector: Optional[str] = Field(default=None, description="CSS selector for content extraction")
+    selector: str | None = Field(default=None, description="CSS selector for content extraction")
     extract_links: bool = Field(default=False, description="Whether to extract and follow links")
 
     @field_validator("urls", mode="before")
@@ -114,7 +114,7 @@ class WebMonitorAdapter(SourceAdapter):
     config_schema: ClassVar[type[BaseModel]] = WebMonitorConfig
 
     def __init__(self) -> None:
-        self._browser: Optional[Browser] = None
+        self._browser: Browser | None = None
         self._playwright = None
 
     async def _ensure_browser(self) -> Browser:
@@ -135,7 +135,7 @@ class WebMonitorAdapter(SourceAdapter):
             await self._playwright.stop()
             self._playwright = None
 
-    async def fetch(self, config: dict[str, Any], cursor: Optional[str] = None) -> IngestionResult:
+    async def fetch(self, config: dict[str, Any], cursor: str | None = None) -> IngestionResult:
         """Fetch web pages using Playwright.
 
         Args:
@@ -171,7 +171,7 @@ class WebMonitorAdapter(SourceAdapter):
         urls = [str(u) for u in cfg.urls[start_idx:]]
 
         for idx, url in enumerate(urls):
-            page: Optional[Page] = None
+            page: Page | None = None
             try:
                 page = await browser.new_page(user_agent=cfg.user_agent)
                 page.set_default_timeout(30000)
@@ -286,7 +286,7 @@ class WebMonitorAdapter(SourceAdapter):
         logger.debug("parse_complete", signal_count=len(signals))
         return signals
 
-    def _get_meta_description(self, soup: BeautifulSoup) -> Optional[str]:
+    def _get_meta_description(self, soup: BeautifulSoup) -> str | None:
         """Extract meta description from HTML."""
         meta = soup.find("meta", attrs={"name": "description"})
         if meta and meta.get("content"):

@@ -11,7 +11,7 @@ import json
 import time
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
@@ -38,7 +38,7 @@ class BriefingSection(BaseModel):
     section_type: str = Field(..., description="Section type: executive_summary, competitive_landscape, threat_assessment, trend_analysis, anomaly_alerts")
     title: str = Field(..., description="Section title")
     content: str = Field(..., description="Markdown content")
-    source_uris: List[str] = Field(default_factory=list, description="Evidence URIs")
+    source_uris: list[str] = Field(default_factory=list, description="Evidence URIs")
     generated_at: datetime = Field(default_factory=datetime.utcnow)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
 
@@ -62,11 +62,11 @@ class Briefing(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     tenant_id: str = Field(..., description="Tenant identifier")
     title: str = Field(..., description="Briefing title")
-    sections: List[BriefingSection] = Field(default_factory=list)
+    sections: list[BriefingSection] = Field(default_factory=list)
     generated_at: datetime = Field(default_factory=datetime.utcnow)
     version: int = Field(default=1, ge=1)
     is_current: bool = Field(default=True)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class BriefingComposerNode:
@@ -164,7 +164,7 @@ class BriefingComposerNode:
 
         return new_state
 
-    async def _download_intelligence(self, uris: List[str]) -> Dict[str, Any]:
+    async def _download_intelligence(self, uris: list[str]) -> dict[str, Any]:
         """Download and parse intelligence JSON from MinIO URIs.
 
         Args:
@@ -192,10 +192,10 @@ class BriefingComposerNode:
 
     async def _build_sections(
         self,
-        intelligence: Dict[str, Any],
+        intelligence: dict[str, Any],
         tenant_id: str,
         trace_id: str,
-    ) -> List[BriefingSection]:
+    ) -> list[BriefingSection]:
         """Build briefing sections from downloaded intelligence.
 
         Args:
@@ -266,7 +266,7 @@ class BriefingComposerNode:
 
         return sections
 
-    def _format_correlations(self, correlations: List[Dict[str, Any]]) -> str:
+    def _format_correlations(self, correlations: list[dict[str, Any]]) -> str:
         """Format correlations into markdown."""
         if not correlations:
             return "No correlations detected."
@@ -281,7 +281,7 @@ class BriefingComposerNode:
 
         return "\n".join(lines)
 
-    def _format_trends(self, trends: List[Dict[str, Any]]) -> str:
+    def _format_trends(self, trends: list[dict[str, Any]]) -> str:
         """Format trends into markdown."""
         if not trends:
             return "No trends detected."
@@ -297,7 +297,7 @@ class BriefingComposerNode:
 
         return "\n".join(lines)
 
-    def _format_anomalies(self, anomalies: List[Dict[str, Any]]) -> str:
+    def _format_anomalies(self, anomalies: list[dict[str, Any]]) -> str:
         """Format anomalies into markdown."""
         if not anomalies:
             return "No anomalies detected."
@@ -315,10 +315,10 @@ class BriefingComposerNode:
 
     async def _generate_executive_summary(
         self,
-        sections: List[BriefingSection],
+        sections: list[BriefingSection],
         tenant_id: str,
         trace_id: str,
-    ) -> Optional[BriefingSection]:
+    ) -> BriefingSection | None:
         """Generate executive summary via NarrativeService.
 
         Args:

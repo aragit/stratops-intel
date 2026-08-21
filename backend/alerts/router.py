@@ -9,16 +9,19 @@ import asyncio
 import json
 import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from email.message import EmailMessage
+from typing import Any
 
-import aiosmtplib
 import aiohttp
+import aiosmtplib
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
 from .rules import Alert
 
 logger = structlog.get_logger(__name__)
+
+CONSUMER_GROUP = "cg:alert_router"
 
 
 class ChannelConfig(BaseModel):
@@ -27,7 +30,7 @@ class ChannelConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: str = Field(..., description="Channel type: slack, email, webhook")
-    config: Dict[str, Any] = Field(default_factory=dict)
+    config: dict[str, Any] = Field(default_factory=dict)
     enabled: bool = True
 
 
@@ -55,7 +58,7 @@ class WebhookChannelConfig(BaseModel):
     """Webhook-specific configuration."""
 
     url: str = Field(..., description="Webhook endpoint URL")
-    headers: Dict[str, str] = Field(default_factory=dict, description="Custom headers")
+    headers: dict[str, str] = Field(default_factory=dict, description="Custom headers")
     timeout_seconds: int = Field(default=10, description="Request timeout")
 
 
@@ -68,9 +71,9 @@ class AlertRouter:
 
     def __init__(
         self,
-        slack_config: Optional[SlackChannelConfig] = None,
-        email_config: Optional[EmailChannelConfig] = None,
-        webhook_config: Optional[WebhookChannelConfig] = None,
+        slack_config: SlackChannelConfig | None = None,
+        email_config: EmailChannelConfig | None = None,
+        webhook_config: WebhookChannelConfig | None = None,
         max_retries: int = 3,
         retry_backoff_base: float = 1.0,
     ) -> None:
@@ -92,8 +95,8 @@ class AlertRouter:
     async def route(
         self,
         alert: Any,
-        channels: List[str],
-    ) -> Dict[str, bool]:
+        channels: list[str],
+    ) -> dict[str, bool]:
         """Route alert to specified channels.
 
         Args:
@@ -106,13 +109,29 @@ class AlertRouter:
         results = {}
 
         for channel in channels:
+            alert_id = getattr(alert, "id", "unknown")
             try:
                 if channel == "slack" and self.slack_config:
-                    success = await self._send_slack(alert)
+                    success = await self._send_with_retry(
+                        self._send_slack,
+                        alert,
+                        channel=channel,
+                        alert_id=alert_id,
+                    )
                 elif channel == "email" and self.email_config:
-                    success = await self._send_email(alert)
+                    success = await self._send_with_retry(
+                        self._send_email,
+                        alert,
+                        channel=channel,
+                        alert_id=alert_id,
+                    )
                 elif channel == "webhook" and self.webhook_config:
-                    success = await self._send_webhook(alert)
+                    success = await self._send_with_retry(
+                        self._send_webhook,
+                        alert,
+                        channel=channel,
+                        alert_id=alert_id,
+                    )
                 else:
                     logger.warning(
                         "channel_not_configured",
@@ -273,7 +292,7 @@ class AlertRouter:
                     "text": f"Alert ID: {alert.id} | Generated: {alert.created_at.isoformat()}",
                 },
             ],
-        )
+        })
 
         payload = {
             "username": self.slack_config.username,
@@ -340,7 +359,7 @@ class AlertRouter:
         </html>
         """
 
-        message = aiosmtplib.EmailMessage()
+        message = EmailMessage()
         message["From"] = f"{self.email_config.from_name} <{self.email_config.from_email}>"
         message["To"] = self.email_config.from_email  # In production, would use configured recipients
         message["Subject"] = f"[{alert.severity.upper()}] {alert.rule_name}"
@@ -360,7 +379,7 @@ class AlertRouter:
         except Exception as e:
             raise RuntimeError(f"Email send failed: {e}")
 
-    def _format_evidence_html(self, evidence: Dict[str, Any]) -> str:
+    def _format_evidence_html(self, evidence: dict[str, Any]) -> str:
         """Format evidence dict as HTML table."""
         if not evidence:
             return ""
@@ -435,7 +454,7 @@ class AlertRouterWorker:
         self.router = router
         self.tenant_id = tenant_id
         self._running = False
-        self._consume_task: Optional[asyncio.Task] = None
+        self._consume_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Start the worker."""
@@ -452,23 +471,23 @@ class AlertRouterWorker:
                 await self._consume_task
             except asyncio.CancelledError:
                 pass
+            self._consume_task = None
         logger.info("alert_router_stopped", tenant_id=self.tenant_id)
 
     async def _consume_loop(self) -> None:
         """Main consumption loop."""
         stream_key = f"stratops:tenant:{self.tenant_id}:alerts"
-        consumer_group = "cg:alert_router"
         consumer_name = f"alert_router_{self.tenant_id}"
 
         # Ensure stream and consumer group exist
-        await self._ensure_stream_and_group(stream_key, consumer_group)
+        await self._ensure_stream_and_group(stream_key, CONSUMER_GROUP)
 
         while self._running:
             try:
                 result = await self.redis.xreadgroup(
-                    consumer_group,
-                    f"alert_router_{self.tenant_id}",
-                    {f"stratops:tenant:{self.tenant_id}:alerts": ">"},
+                    CONSUMER_GROUP,
+                    consumer_name,
+                    {stream_key: ">"},
                     block=5000,
                     count=10,
                 )
@@ -495,40 +514,35 @@ class AlertRouterWorker:
         except Exception:
             pass  # Group may already exist
 
-    async def _process_message(self, message_id: str, message_data: Dict[str, Any]) -> None:
-        """Process a single alert message."""
+    async def _process_message(self, message_id: str, message_data: dict[str, Any]) -> None:
+        """Process a single alert message.
+
+        Parses the raw stream payload into an :class:`Alert` pydantic model
+        and routes it to the requested channels. Malformed payloads and
+        routing failures are written to the tenant dead-letter stream
+        (``stratops:tenant:{tenant_id}:alerts:dead``) and acknowledged so a
+        single bad message never halts the consumer loop.
+        """
+        stream_key = f"stratops:tenant:{self.tenant_id}:alerts"
         try:
-            # Parse alert from message
-            alert_data = message_data.get("alert", message_data)
-            alert_id = alert_data.get("id", "unknown")
+            alert_payload = message_data.get("alert", message_data)
+            if not isinstance(alert_payload, dict):
+                raise ValueError(
+                    f"alert payload must be a mapping, got {type(alert_payload).__name__}"
+                )
 
-            # Parse channels from message
-            channels = alert_data.get("channels", ["slack"])
+            # ``channels`` is transport metadata, not an Alert field
+            payload = {k: v for k, v in alert_payload.items() if k != "channels"}
+            channels = self._parse_channels(alert_payload.get("channels", ["slack"]))
+            alert = Alert.model_validate(payload)
 
-            # Reconstruct alert object (simplified)
-            alert = mock.MagicMock()
-            alert.id = alert_data.get("id", "unknown")
-            alert.tenant_id = alert_data.get("tenant_id", "unknown")
-            alert.rule_id = alert_data.get("rule_id", "unknown")
-            alert.rule_name = alert_data.get("rule_name", "Unknown Rule")
-            alert.severity = alert_data.get("severity", "warning")
-            alert.message = alert_data.get("message", "Alert triggered")
-            alert.evidence = alert_data.get("evidence", {})
-            alert.created_at = datetime.fromisoformat(alert_data.get("created_at", datetime.utcnow().isoformat()))
-
-            # Route alert
             results = await self.router.route(alert, channels)
 
-            # Acknowledge message
-            await self.redis.xack(
-                f"stratops:tenant:{self.tenant_id}:alerts",
-                "cg:alert_router",
-                message_id,
-            )
+            await self.redis.xack(stream_key, CONSUMER_GROUP, message_id)
 
             logger.info(
                 "alert_routed",
-                alert_id=alert_id,
+                alert_id=alert.id,
                 tenant_id=self.tenant_id,
                 results=results,
             )
@@ -537,11 +551,55 @@ class AlertRouterWorker:
             logger.error(
                 "alert_processing_failed",
                 message_id=message_id,
+                tenant_id=self.tenant_id,
                 error=str(e),
             )
-            # Still ack to prevent infinite retries
-            await self.redis.xack(
-                f"stratops:tenant:{self.tenant_id}:alerts",
-                "cg:alert_router",
-                message_id,
+            await self._send_to_dead_letter(message_id, message_data, str(e))
+            await self.redis.xack(stream_key, CONSUMER_GROUP, message_id)
+
+    @staticmethod
+    def _parse_channels(raw: Any) -> list[str]:
+        """Validate the channel list from the payload.
+
+        Args:
+            raw: Raw ``channels`` value from the message payload.
+
+        Returns:
+            A list of channel names.
+
+        Raises:
+            ValueError: If the value is not a non-empty list of strings.
+        """
+        if not isinstance(raw, list) or not raw or not all(isinstance(c, str) for c in raw):
+            raise ValueError(f"channels must be a non-empty list of strings, got {raw!r}")
+        return raw
+
+    async def _send_to_dead_letter(
+        self,
+        message_id: str,
+        message_data: dict[str, Any],
+        error: str,
+    ) -> None:
+        """Write a failed message to the tenant dead-letter stream.
+
+        Dead-letter delivery failures are logged and swallowed: the caller
+        still acknowledges the original message so the consumer loop keeps
+        making progress.
+        """
+        try:
+            await self.redis.xadd(
+                f"stratops:tenant:{self.tenant_id}:alerts:dead",
+                {
+                    "message_id": message_id,
+                    "error": error,
+                    "payload": json.dumps(message_data, default=str),
+                    "failed_at": datetime.utcnow().isoformat(),
+                },
+            )
+        except Exception as dlq_error:
+            logger.error(
+                "dead_letter_write_failed",
+                message_id=message_id,
+                tenant_id=self.tenant_id,
+                error=str(dlq_error),
             )

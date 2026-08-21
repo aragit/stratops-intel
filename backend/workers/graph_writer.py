@@ -96,7 +96,10 @@ class MicroBatchBuffer:
     async def enqueue(self, update: EntityUpdate) -> None:
         """Add an entity update to the buffer.
 
-        LPUSH the update as JSON to the pending list.
+        LPUSH the update as JSON to the pending list (durable log), then
+        append to the in-memory buffer. Auto-flushes when batch_size is
+        reached. The flush runs on the already-held lock via the unlocked
+        helper because asyncio.Lock is not reentrant.
 
         Args:
             update: EntityUpdate instance to enqueue
@@ -106,67 +109,73 @@ class MicroBatchBuffer:
         async with self._flush_lock:
             self._buffer.append(update_dict)
             if len(self._buffer) >= self.batch_size:
-                await self.flush()
+                await self._flush_unlocked()
 
     async def flush(self) -> list[dict]:
         """Flush all accumulated updates from the buffer.
 
-        LRANGE all items from the list, then DELETE the list atomically.
+        Drains the in-memory buffer and deletes the durable Redis log key.
         Deduplicates by (entity_id, rel_type) — keeps the latest update.
 
         Returns:
             List of deduplicated update dicts ready for Neo4j UNWIND MERGE
         """
         async with self._flush_lock:
-            # Pull all items from Redis
-            raw_items = await self.redis.lrange(self._buffer_key, 0, -1)
-            # Clear the list atomically using DELETE
-            await self.redis.delete(self._buffer_key)
+            return await self._flush_unlocked()
 
-            # Parse and deduplicate
-            updates: dict[tuple[str, str], dict] = {}  # (entity_id, rel_type) -> update
-            entity_updates: dict[str, dict] = {}  # entity_id -> latest entity update
+    async def _flush_unlocked(self) -> list[dict]:
+        """Flush implementation. Caller must hold ``self._flush_lock``."""
+        # Pull any items persisted in Redis (crash recovery), then clear the log.
+        # In-memory entries are newer and take precedence during dedup.
+        raw_items = await self.redis.lrange(self._buffer_key, 0, -1)
+        await self.redis.delete(self._buffer_key)
 
-            for raw in raw_items:
-                try:
-                    update_dict = json.loads(raw)
-                    # Deduplication: keep latest by timestamp or order
-                    # We'll deduplicate at the relationship level
-                    if update_dict["entity_id"] not in entity_updates:
-                        entity_updates[update_dict["entity_id"]] = update_dict
-                    # Track relationships for dedup
-                    for rel in update_dict.get("relationships", []):
-                        dedup_key = (update_dict["entity_id"], rel["rel_type"])
-                        # Keep the latest (simple approach: just overwrite)
-                        updates[dedup_key] = rel
-                except (json.JSONDecodeError, KeyError) as e:
-                    logger.warning(
-                        "buffer_flush_invalid_item",
-                        error=str(e),
-                        raw=raw[:200] if raw else None,
-                    )
-                    continue
+        updates: dict[tuple[str, str], dict] = {}  # (entity_id, rel_type) -> update
+        entity_updates: dict[str, dict] = {}  # entity_id -> latest entity update
 
-            # Rebuild updates with deduplicated relationships
-            deduplicated: list[dict] = []
-            for _entity_id, entity_update in entity_updates.items():
-                # Filter relationships to only deduplicated ones
-                dedup_rels = []
-                for rel in entity_update.get("relationships", []):
-                    dedup_key = (entity_update["entity_id"], rel["rel_type"])
-                    if dedup_key in updates:
-                        dedup_rels.append(updates[dedup_key])
+        for raw in [*raw_items, *self._buffer]:
+            try:
+                update_dict = (
+                    json.loads(raw) if isinstance(raw, (str, bytes, bytearray)) else raw
+                )
+                if not isinstance(update_dict, dict) or "entity_id" not in update_dict:
+                    raise KeyError("entity_id")
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(
+                    "buffer_flush_invalid_item",
+                    error=str(e),
+                    raw=str(raw)[:200] if raw else None,
+                )
+                continue
 
-                if dedup_rels:
-                    entity_copy = {**entity_update}
-                    entity_copy["relationships"] = dedup_rels
-                    deduplicated.append(entity_copy)
-                else:
-                    # Entity with no valid relationships still needs to be created/updated
-                    deduplicated.append(entity_update)
+            # Deduplication: keep latest by insertion order
+            entity_updates[update_dict["entity_id"]] = update_dict
+            # Track relationships for dedup
+            for rel in update_dict.get("relationships", []):
+                dedup_key = (update_dict["entity_id"], rel["rel_type"])
+                # Keep the latest (simple approach: just overwrite)
+                updates[dedup_key] = rel
 
-            self._buffer = []
-            return deduplicated
+        # Rebuild updates with deduplicated relationships
+        deduplicated: list[dict] = []
+        for _entity_id, entity_update in entity_updates.items():
+            # Filter relationships to only deduplicated ones
+            dedup_rels = []
+            for rel in entity_update.get("relationships", []):
+                dedup_key = (entity_update["entity_id"], rel["rel_type"])
+                if dedup_key in updates:
+                    dedup_rels.append(updates[dedup_key])
+
+            if dedup_rels:
+                entity_copy = {**entity_update}
+                entity_copy["relationships"] = dedup_rels
+                deduplicated.append(entity_copy)
+            else:
+                # Entity with no valid relationships still needs to be created/updated
+                deduplicated.append(entity_update)
+
+        self._buffer = []
+        return deduplicated
 
     async def start_periodic_flush(self) -> None:
         """Start the periodic flush background task.

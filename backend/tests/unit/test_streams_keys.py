@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from streams.keys import StreamKeyBuilder
+from backend.streams.keys import StreamKeyBuilder
 
 
 class TestStreamKeyBuilderInit:

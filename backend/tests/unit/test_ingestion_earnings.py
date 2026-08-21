@@ -13,8 +13,8 @@ from backend.ingestion.adapters.earnings import (
     EarningsConfig,
     EarningsSegment,
     EarningsTranscript,
-    RawSignal,
     NormalizedSignal,
+    RawSignal,
 )
 
 
@@ -132,7 +132,7 @@ class TestEarningsCallAdapter:
 
     @pytest.mark.asyncio
     async def test_fetch_returns_signals(self, adapter, sample_config) -> None:
-        """Fetch returns signals for each ticker."""
+        """Fetch returns JSON payload; parse yields one signal per ticker."""
         with mock.patch.object(adapter, "_fetch_transcript") as mock_fetch:
             mock_transcript = EarningsTranscript(
                 company_ticker="AAPL",
@@ -145,9 +145,13 @@ class TestEarningsCallAdapter:
 
             result = await adapter.fetch(sample_config)
 
-            assert len(result.signals) == 2  # AAPL and MSFT
-            assert all(s.source_type == "earnings" for s in result.signals)
-            assert all(s.fingerprint for s in result.signals)
+            assert result.content_type == "application/json"
+            assert result.metadata["transcripts_fetched"] == 2
+
+            signals = await adapter.parse(result.raw_data, result.content_type)
+            assert len(signals) == 2  # AAPL and MSFT
+            assert all(s.source_type == "earnings" for s in signals)
+            assert all(s.fingerprint for s in signals)
 
     @pytest.mark.asyncio
     async def test_fetch_handles_errors(self, adapter, sample_config) -> None:
@@ -157,21 +161,24 @@ class TestEarningsCallAdapter:
 
             result = await adapter.fetch(sample_config)
 
-            # Should have 0 signals (first error, second None)
-            assert len(result.signals) == 0
+            # Should have 0 transcripts (first error, second None)
+            assert json.loads(result.raw_data.decode("utf-8")) == []
+            assert result.metadata["transcripts_fetched"] == 0
 
     @pytest.mark.asyncio
     async def test_parse_raw_data(self, adapter, sample_transcript) -> None:
         """Parse raw transcript data into RawSignal."""
-        raw_data = sample_transcript.model_dump(mode="json")
+        raw_data = json.dumps([sample_transcript.model_dump(mode="json")]).encode("utf-8")
 
-        signals = await adapter.parse(raw_data, "text/plain")
+        signals = await adapter.parse(raw_data, "application/json")
 
         assert len(signals) == 1
         signal = signals[0]
         assert signal.source_type == "earnings"
-        assert signal.source_id == "AAPL-Q1-2024"
-        assert signal.raw_data == raw_data
+        assert signal.source_url == "earnings://AAPL/Q1-2024"
+        assert signal.metadata["ticker"] == "AAPL"
+        assert signal.metadata["fiscal_quarter"] == "Q1-2024"
+        assert json.loads(signal.raw_content.decode("utf-8")) == sample_transcript.model_dump(mode="json")
 
     def test_identify_speaker_role(self, adapter) -> None:
         """Speaker role identification."""
@@ -241,12 +248,10 @@ class TestEarningsCallAdapter:
     ) -> None:
         """Normalize uploads transcript to MinIO and returns content URI."""
         signal = RawSignal(
-            id="test-1",
             source_type="earnings",
-            source_id="AAPL-Q1-2024",
+            source_url="earnings://AAPL/Q1-2024",
             fingerprint="abc123",
-            content_type="text/plain",
-            raw_data=sample_transcript.model_dump(mode="json"),
+            raw_content=json.dumps(sample_transcript.model_dump(mode="json")).encode("utf-8"),
         )
 
         with mock.patch.object(adapter, "_upload_transcript") as mock_upload:
@@ -269,15 +274,14 @@ class TestEarningsCallAdapter:
     ) -> None:
         """Normalize extracts sentiment from CEO/CFO remarks."""
         signal = RawSignal(
-            id="test-1",
             source_type="earnings",
-            source_id="AAPL-Q1-2024",
+            source_url="earnings://AAPL/Q1-2024",
             fingerprint="abc123",
-            content_type="text/plain",
-            raw_data=sample_transcript.model_dump(mode="json"),
+            raw_content=json.dumps(sample_transcript.model_dump(mode="json")).encode("utf-8"),
         )
 
-        with mock.patch.object(adapter, "_upload_transcript"):
+        with mock.patch.object(adapter, "_upload_transcript") as mock_upload:
+            mock_upload.return_value = "s3://stratops-earnings/AAPL/Q1-2024/transcript.json"
             normalized = await adapter.normalize([signal])
 
         norm = normalized[0]
@@ -295,7 +299,8 @@ class TestEarningsCallAdapter:
             mock_fetch.return_value = mock_transcript
 
             result = await adapter.fetch(sample_config)
-            signal = result.signals[0]
+            signals = await adapter.parse(result.raw_data, result.content_type)
+            signal = signals[0]
 
             fp_from_fetch = signal.fingerprint
             fp_from_normalize = await adapter.fingerprint(signal)

@@ -6,9 +6,9 @@ FastAPI dependencies for database access, and ORM models.
 
 __version__ = "0.1.0"
 
-from db.dependencies import get_admin_db, get_db, verify_api_key
-from db.models import APIKey, Signal, Tenant, TenantConfig, User
-from db.tenant_session import (
+from backend.db.dependencies import get_admin_db, get_db, verify_api_key
+from backend.db.models import APIKey, Signal, Tenant, TenantConfig, User
+from backend.db.tenant_session import (
     TenantSessionManager,
     close_database,
     get_admin_session,

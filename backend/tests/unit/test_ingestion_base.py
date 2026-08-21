@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from uuid import uuid4
+from pydantic import BaseModel
 
 from ingestion.base import (
     AdapterNotFoundError,
@@ -15,7 +15,6 @@ from ingestion.base import (
     SourceAdapter,
     register_adapter,
 )
-from pydantic import BaseModel
 
 
 class DummyAdapter(SourceAdapter):
@@ -74,15 +73,13 @@ class TestAdapterRegistry:
         with pytest.raises(AdapterNotFoundError):
             AdapterRegistry.get("nonexistent")
 
-    def test_manual_registration_works(self):
-        """Test that manual registration works (auto-registration is lazy)."""
-        from ingestion.adapters import web, sec  # noqa: F401
-        # Force registration
-        from ingestion.adapters.web import WebMonitorAdapter
-        from ingestion.adapters.sec import SECFilingAdapter
-        AdapterRegistry.register(WebMonitorAdapter)
+    def test_builtin_adapters_registered_on_import(self):
+        """Test that importing the adapters package registers built-in adapters."""
+        AdapterRegistry.clear()
+        from ingestion.adapters.sec import SECFilingAdapter  # noqa: F401
+        from ingestion.adapters.web import WebMonitorAdapter  # noqa: F401
         AdapterRegistry.register(SECFilingAdapter)
-        
+        AdapterRegistry.register(WebMonitorAdapter)
         assert "web_monitor" in AdapterRegistry.list_adapters()
         assert "sec_filings" in AdapterRegistry.list_adapters()
 

@@ -6,9 +6,9 @@ health checks, and query execution.
 
 from __future__ import annotations
 
-import json
-import pytest
 from unittest import mock
+
+import pytest
 
 from backend.db.neo4j_client import Neo4jClient
 
@@ -24,14 +24,14 @@ class TestNeo4jClient:
     @pytest.mark.asyncio
     async def test_health_check(self, neo4j_client: Neo4jClient) -> None:
         """Test Neo4j health check returns {"health": 1} when connected."""
-        # Mock the driver and session
+        # Mock the driver and async session context manager
         mock_driver = mock.MagicMock()
-        mock_session = mock.AsyncMock()
-        mock_record = mock.MagicMock()
-        mock_record.__getitem__.return_value = 1
-        mock_session.run.return_value = mock.MagicMock()
-        mock_session.run.return_value.fetch_one.return_value = mock_record
-        mock_driver.session.return_value = mock_session
+        mock_session = mock.MagicMock()
+        mock_session.run = mock.AsyncMock()
+        mock_session.run.return_value.fetch_one = mock.AsyncMock(
+            return_value={"health": 1}
+        )
+        mock_driver.session.return_value.__aenter__.return_value = mock_session
         neo4j_client._driver = mock_driver
         neo4j_client._initialized = True
 
@@ -56,13 +56,13 @@ class TestNeo4jClient:
     async def test_run_query(self, neo4j_client: Neo4jClient) -> None:
         """Test executing a Cypher query with parameters."""
         mock_driver = mock.MagicMock()
-        mock_session = mock.AsyncMock()
-        mock_result = mock.MagicMock()
-        mock_record = mock.MagicMock()
-        mock_record.__getitem__.return_value = "test_value"
-        mock_result.fetch_one.return_value = mock_record
-        mock_session.run.return_value = mock_result
-        mock_driver.session.return_value = mock_session
+        mock_session = mock.MagicMock()
+        mock_session.run = mock.AsyncMock()
+        # fetch(5000) returns multiple records -> client returns the list
+        mock_session.run.return_value.fetch = mock.AsyncMock(
+            return_value=[{"name": "A"}, {"name": "B"}]
+        )
+        mock_driver.session.return_value.__aenter__.return_value = mock_session
         neo4j_client._driver = mock_driver
         neo4j_client._initialized = True
 
@@ -73,49 +73,60 @@ class TestNeo4jClient:
 
         mock_driver.session.assert_called_once()
         mock_session.run.assert_called_once_with(query, parameters)
-        assert result == mock_record
+        assert result == [{"name": "A"}, {"name": "B"}]
 
     @pytest.mark.asyncio
     async def test_run_query_no_parameters(self, neo4j_client: Neo4jClient) -> None:
-        """Test executing a Cypher query without parameters."""
+        """Query without parameters is executed with an empty dict."""
         mock_driver = mock.MagicMock()
-        mock_session = mock.AsyncMock()
-        mock_result = mock.MagicMock()
-        mock_record = mock.MagicMock()
-        mock_record.__getitem__.return_value = True
-        mock_result.fetch_one.return_value = mock_record
-        mock_session.run.return_value = mock_result
-        mock_driver.session.return_value = mock_session
+        mock_session = mock.MagicMock()
+        mock_session.run = mock.AsyncMock()
+        mock_session.run.return_value.fetch = mock.AsyncMock(
+            return_value=[{"ok": True}]
+        )
+        mock_driver.session.return_value.__aenter__.return_value = mock_session
         neo4j_client._driver = mock_driver
         neo4j_client._initialized = True
 
         query = "CREATE (n:Person {name: 'Test', tenant_id: $tid})"
-        parameters = {"tid": "00000000-0000-0000-0000-000000000001"}
 
-        result = await neo4j_client.run(query, parameters)
+        result = await neo4j_client.run(query)
 
-        mock_session.run.assert_called_once_with(query, parameters)
-        assert result == mock_record
+        # Production coerces missing parameters to {}
+        mock_session.run.assert_called_once_with(query, {})
+        # Single record is returned unwrapped
+        assert result == {"ok": True}
 
     @pytest.mark.asyncio
     async def test_init_schema(self, neo4j_client: Neo4jClient) -> None:
-        """Test schema initialization runs without error."""
-        # Mock the file reading and statement execution
-        with mock.patch("backend.db.neo4j_client.open", mock.mock_open(read_data="CREATE (n:Person)")):
-            with mock.patch.object(neo4j_client, "_execute_single_statement") as mock_exec:
-                # The init_schema reads the file and executes statements
-                # We need to test the general flow
-                pass
+        """Schema init splits the cypher file and executes each statement."""
+        mock_driver = mock.MagicMock()
+        mock_session = mock.MagicMock()
+        mock_driver.session.return_value.__aenter__.return_value = mock_session
+        neo4j_client._driver = mock_driver
+        neo4j_client._initialized = True
 
-        # Just verify the method exists and is callable
-        assert callable(getattr(neo4j_client, "init_schema", None))
+        schema_content = "CREATE CONSTRAINT c1 IF NOT EXISTS FOR (n:Person) REQUIRE n.id IS UNIQUE; CREATE INDEX i1 IF NOT EXISTS FOR (n:Company) ON (n.tenant_id);"
+
+        with mock.patch(
+            "builtins.open", mock.mock_open(read_data=schema_content)
+        ):
+            with mock.patch(
+                "backend.db.neo4j_client.statement_single"
+            ) as mock_exec:
+                mock_exec.side_effect = mock.AsyncMock(return_value=None)
+                await neo4j_client.init_schema()
+
+        assert mock_exec.await_count == 2
 
     @pytest.mark.asyncio
     async def test_close(self, neo4j_client: Neo4jClient) -> None:
         """Test closing the Neo4j driver."""
-        neo4j_client._driver = mock.MagicMock()
+        mock_driver = mock.AsyncMock()
+        neo4j_client._driver = mock_driver
         await neo4j_client.close()
-        neo4j_client._driver.close.assert_called_once()
+        mock_driver.close.assert_awaited_once()
+        assert neo4j_client._driver is None
 
     @pytest.mark.asyncio
     async def test_run_without_init_fails(self, neo4j_client: Neo4jClient) -> None:

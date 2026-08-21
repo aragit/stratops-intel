@@ -9,15 +9,13 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
-from .extractor import IntelligenceState
-from .composer import Briefing, BriefingSection
+from .composer import Briefing
 
 logger = structlog.get_logger(__name__)
 
@@ -41,9 +39,9 @@ class BriefingDelta(BaseModel):
     briefing_id: str = Field(..., description="Briefing identifier")
     tenant_id: str = Field(..., description="Tenant identifier")
     delta_type: str = Field(..., description="Type: append, replace_section, full_regeneration")
-    sections_added: List[Dict[str, Any]] = Field(default_factory=list, description="New sections to add")
-    sections_updated: List[Dict[str, Any]] = Field(default_factory=list, description="Existing sections to update")
-    sections_removed: List[str] = Field(default_factory=list, description="Section titles removed")
+    sections_added: list[dict[str, Any]] = Field(default_factory=list, description="New sections to add")
+    sections_updated: list[dict[str, Any]] = Field(default_factory=list, description="Existing sections to update")
+    sections_removed: list[str] = Field(default_factory=list, description="Section titles removed")
     summary: str = Field(..., description="LLM-generated summary of changes")
     generated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -95,7 +93,7 @@ class BriefingDeltaGenerator:
         self,
         current_briefing: Briefing,
         new_state: Any,
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """Generate delta between current briefing and new intelligence state.
 
         Args:
@@ -178,7 +176,7 @@ class BriefingDeltaGenerator:
             return getattr(section, attr)
         return section.get(attr, default)
 
-    async def _build_sections_from_state(self, state: Any) -> List[Dict[str, Any]]:
+    async def _build_sections_from_state(self, state: Any) -> list[dict[str, Any]]:
         """Build section dicts from intelligence state.
 
         Args:
@@ -195,9 +193,9 @@ class BriefingDeltaGenerator:
 
     def _compare_sections(
         self,
-        current_sections: List[Any],
-        new_sections: List[Any],
-    ) -> Optional[Dict[str, Any]]:
+        current_sections: list[Any],
+        new_sections: list[Any],
+    ) -> dict[str, Any] | None:
         """Compare current and new sections to determine delta type.
 
         Args:
@@ -224,8 +222,8 @@ class BriefingDeltaGenerator:
         current_by_type = {self._get_section_attr(s, "section_type"): s for s in current_sections}
         new_by_type = {self._get_section_attr(s, "section_type"): s for s in new_sections}
 
-        current_types: Set[str] = set(current_by_type.keys())
-        new_types: Set[str] = set(self._get_section_attr(s, "section_type") for s in new_sections)
+        current_types: set[str] = set(current_by_type.keys())
+        new_types: set[str] = set(self._get_section_attr(s, "section_type") for s in new_sections)
 
         added_types = new_types - current_types
         removed_types = set(current_types) - new_types
@@ -307,9 +305,9 @@ class BriefingDeltaGenerator:
     def _generate_summary(
         self,
         delta_type: str,
-        sections_added: List[Dict[str, Any]],
-        sections_updated: List[Dict[str, Any]],
-        sections_removed: List[str],
+        sections_added: list[dict[str, Any]],
+        sections_updated: list[dict[str, Any]],
+        sections_removed: list[str],
     ) -> str:
         """Generate human-readable summary of changes."""
         parts = []
@@ -334,7 +332,7 @@ class BriefingDeltaGenerator:
 
         return " ".join(parts)
 
-    async def _generate_delta_summary(self, delta: Dict[str, Any]) -> str:
+    async def _generate_delta_summary(self, delta: dict[str, Any]) -> str:
         """Generate LLM summary of delta changes (placeholder)."""
         # In production, would call NarrativeService or SummarizationService
         return self._generate_summary(
@@ -393,7 +391,7 @@ class BriefingDeltaWorker:
         self.briefing_repo = briefing_repo
         self.tenant_id = tenant_id
         self._running = False
-        self._consume_task: Optional[asyncio.Task] = None
+        self._consume_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Start the worker."""
@@ -440,7 +438,7 @@ class BriefingDeltaWorker:
                 logger.error("delta_worker_consume_error", error=str(e))
                 await asyncio.sleep(0.1)
 
-    async def _process_message(self, message_id: str, message_data: Dict[str, Any]) -> None:
+    async def _process_message(self, message_id: str, message_data: dict[str, Any]) -> None:
         """Process intelligence update message and generate delta if needed."""
         try:
             # Get current briefing from DB

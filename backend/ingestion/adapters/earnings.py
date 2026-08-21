@@ -6,16 +6,14 @@ performs sentiment analysis on management remarks.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
-from uuid import uuid4
+from typing import Any
 
 import structlog
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..base import (
     IngestionResult,
@@ -39,8 +37,8 @@ class EarningsConfig(SourceConfig):
 
     model_config = ConfigDict(extra="forbid")
 
-    company_tickers: List[str] = Field(..., min_length=1, description="Company tickers")
-    quarters: Optional[List[str]] = Field(None, description="Quarters to fetch")
+    company_tickers: list[str] = Field(..., min_length=1, description="Company tickers")
+    quarters: list[str] | None = Field(None, description="Quarters to fetch")
     audio_source: str = Field(default="seeking_alpha", description="Audio/transcript source")
 
 
@@ -63,9 +61,9 @@ class EarningsTranscript(BaseModel):
     company_ticker: str = Field(..., description="Company ticker")
     fiscal_quarter: str = Field(..., description="Fiscal quarter (e.g., Q1-2024)")
     call_date: datetime = Field(..., description="Call date")
-    participants: List[str] = Field(default_factory=list, description="All speakers")
-    segments: List[EarningsSegment] = Field(..., description="Transcript segments")
-    duration_seconds: Optional[int] = Field(None, description="Call duration in seconds")
+    participants: list[str] = Field(default_factory=list, description="All speakers")
+    segments: list[EarningsSegment] = Field(..., description="Transcript segments")
+    duration_seconds: int | None = Field(None, description="Call duration in seconds")
 
 
 class EarningsCallAdapter(SourceAdapter):
@@ -103,7 +101,7 @@ class EarningsCallAdapter(SourceAdapter):
     def __init__(self) -> None:
         super().__init__()
 
-    async def fetch(self, config: EarningsConfig, cursor: Optional[dict] = None) -> IngestionResult:
+    async def fetch(self, config: EarningsConfig, cursor: str | None = None) -> IngestionResult:
         """Fetch earnings call transcripts from configured source.
 
         For MVP: fetches transcript text from public sources (Seeking Alpha, etc.)
@@ -115,35 +113,15 @@ class EarningsCallAdapter(SourceAdapter):
             source=config.audio_source,
         )
 
-        all_signals: List[RawSignal] = []
+        transcripts: list[dict[str, Any]] = []
 
         for ticker in config.company_tickers:
             try:
-                # For MVP: fetch from public transcript sources
                 transcript = await self._fetch_transcript(
                     ticker, config.quarters, config.audio_source
                 )
-
-                if transcript:
-                    raw_data = transcript.model_dump(mode="json")
-                    fingerprint = self._compute_fingerprint(ticker, transcript.fiscal_quarter)
-
-                    signal = RawSignal(
-                        id=str(uuid4()),
-                        source_type=self.source_type,
-                        source_id=f"{ticker}-{transcript.fiscal_quarter}",
-                        fingerprint=fingerprint,
-                        content_type="text/plain",
-                        raw_data=raw_data,
-                        metadata={
-                            "ticker": ticker,
-                            "fiscal_quarter": transcript.fiscal_quarter,
-                            "call_date": transcript.call_date.isoformat(),
-                            "source": config.audio_source,
-                        },
-                    )
-                    all_signals.append(signal)
-
+                if transcript is not None:
+                    transcripts.append(transcript.model_dump(mode="json"))
             except Exception as e:
                 logger.error(
                     "earnings_fetch_failed",
@@ -153,16 +131,21 @@ class EarningsCallAdapter(SourceAdapter):
                 continue
 
         return IngestionResult(
-            signals=all_signals,
-            cursor={"last_fetch": datetime.utcnow().isoformat()},
+            raw_data=json.dumps(transcripts).encode("utf-8"),
+            content_type="application/json",
+            next_cursor=None,
+            metadata={
+                "tickers": list(config.company_tickers),
+                "transcripts_fetched": len(transcripts),
+            },
         )
 
     async def _fetch_transcript(
         self,
         ticker: str,
-        quarters: Optional[List[str]],
+        quarters: list[str] | None,
         source: str,
-    ) -> Optional[EarningsTranscript]:
+    ) -> EarningsTranscript | None:
         """Fetch transcript from public source.
 
         For MVP: returns mock transcript.
@@ -219,27 +202,50 @@ class EarningsCallAdapter(SourceAdapter):
         content = f"{ticker}:{quarter}"
         return hashlib.sha256(content.encode()).hexdigest()[:16]
 
-    async def parse(self, raw_data: Dict[str, Any], content_type: str) -> List[RawSignal]:
-        """Parse raw transcript data into RawSignal."""
-        # Data is already structured from fetch
-        fingerprint = raw_data.get("fingerprint") or self._compute_fingerprint(
-            raw_data.get("company_ticker", "unknown"),
-            raw_data.get("fiscal_quarter", "unknown"),
-        )
+    async def parse(self, raw_data: Any, content_type: str) -> list[RawSignal]:
+        """Parse raw transcript data into RawSignal objects.
 
-        signal = RawSignal(
-            id=str(uuid4()),
-            source_type=self.source_type,
-            source_id=f"{raw_data.get('company_ticker', 'unknown')}-{raw_data.get('fiscal_quarter', 'unknown')}",
-            fingerprint=fingerprint,
-            content_type="text/plain",
-            raw_data=raw_data,
-            metadata={
-                "ticker": raw_data.get("company_ticker"),
-                "fiscal_quarter": raw_data.get("fiscal_quarter"),
-            },
-        )
-        return [signal]
+        Args:
+            raw_data: JSON bytes from fetch() (a list of transcript dicts),
+                or a single transcript dict for convenience.
+            content_type: MIME type from fetch() result.
+
+        Returns:
+            One RawSignal per transcript, with raw_content holding the
+            transcript JSON (stored in MinIO downstream).
+        """
+        if isinstance(raw_data, (bytes, bytearray)):
+            items = json.loads(raw_data.decode("utf-8"))
+        elif isinstance(raw_data, str):
+            items = json.loads(raw_data)
+        else:
+            items = raw_data
+        if isinstance(items, dict):
+            items = [items]
+
+        signals: list[RawSignal] = []
+        for item in items:
+            transcript = EarningsTranscript.model_validate(item)
+            signals.append(
+                RawSignal(
+                    source_type=self.source_type,
+                    source_url=(
+                        f"earnings://{transcript.company_ticker}/"
+                        f"{transcript.fiscal_quarter}"
+                    ),
+                    raw_content=json.dumps(item).encode("utf-8"),
+                    fingerprint=self._compute_fingerprint(
+                        transcript.company_ticker, transcript.fiscal_quarter
+                    ),
+                    metadata={
+                        "ticker": transcript.company_ticker,
+                        "fiscal_quarter": transcript.fiscal_quarter,
+                        "call_date": transcript.call_date.isoformat(),
+                        "participants": transcript.participants,
+                    },
+                )
+            )
+        return signals
 
     def _identify_speaker_role(self, speaker: str) -> str:
         """Identify speaker role from name/title."""
@@ -250,7 +256,15 @@ class EarningsCallAdapter(SourceAdapter):
                     return role
         return "other"
 
-    def _analyze_sentiment(self, text: str, role: str) -> Dict[str, Any]:
+    def _count_keywords(self, words: set, keywords: set) -> int:
+        """Count words matching a keyword lexicon (stem-tolerant).
+
+        A word matches if it equals a keyword or extends it (e.g.
+        "declining" matches "decline", "headwinds" matches "headwind").
+        """
+        return sum(1 for w in words if any(w == k or w.startswith(k) for k in keywords))
+
+    def _analyze_sentiment(self, text: str, role: str) -> dict[str, Any]:
         """Analyze sentiment of a text segment.
 
         Returns sentiment score and label.
@@ -258,8 +272,8 @@ class EarningsCallAdapter(SourceAdapter):
         text_lower = text.lower()
         words = set(re.findall(r"\b\w+\b", text_lower))
 
-        positive_count = len(words & self.POSITIVE_KEYWORDS)
-        negative_count = len(words & self.NEGATIVE_KEYWORDS)
+        positive_count = self._count_keywords(words, self.POSITIVE_KEYWORDS)
+        negative_count = self._count_keywords(words, self.NEGATIVE_KEYWORDS)
 
         total = positive_count + negative_count
         if total == 0:
@@ -275,29 +289,32 @@ class EarningsCallAdapter(SourceAdapter):
             "negative": negative_count,
         }
 
-    async def normalize(self, signals: List[RawSignal]) -> List[NormalizedSignal]:
+    async def normalize(self, signals: list[RawSignal]) -> list[NormalizedSignal]:
         """Normalize raw earnings signals into structured signals.
 
         - Upload raw transcript to MinIO
         - Extract metadata (ticker, quarter, participants)
         - Run sentiment analysis on CEO/CFO remarks
         """
-        normalized: List[NormalizedSignal] = []
+        normalized: list[NormalizedSignal] = []
 
         for signal in signals:
-            raw_data = signal.raw_data
-            if not isinstance(raw_data, dict):
-                logger.warning("invalid_raw_data", signal_id=signal.id)
+            try:
+                payload = json.loads(signal.raw_content.decode("utf-8"))
+                transcript = EarningsTranscript.model_validate(payload)
+            except Exception as e:
+                logger.warning(
+                    "invalid_raw_data",
+                    source_type=signal.source_type,
+                    error=str(e),
+                )
                 continue
-
-            # Parse transcript
-            transcript = EarningsTranscript.model_validate(raw_data)
 
             # Upload raw transcript to MinIO
             content_uri = await self._upload_transcript(
                 transcript.company_ticker,
                 transcript.fiscal_quarter,
-                raw_data,
+                payload,
             )
 
             # Analyze sentiment for CEO/CFO segments
@@ -313,25 +330,32 @@ class EarningsCallAdapter(SourceAdapter):
             # Aggregate sentiment
             overall_sentiment = self._aggregate_sentiment(sentiments)
 
-            # Build normalized signal
-            normalized = NormalizedSignal(
-                id=str(uuid4()),
-                source_type=self.source_type,
-                source_id=signal.source_id,
-                fingerprint=signal.fingerprint,
-                content_uri=content_uri,
-                metadata={
-                    "ticker": transcript.company_ticker,
-                    "fiscal_quarter": transcript.fiscal_quarter,
-                    "call_date": transcript.call_date.isoformat(),
-                    "participants": transcript.participants,
-                    "duration_seconds": transcript.duration_seconds,
-                    "sentiment": overall_sentiment,
-                    "management_remarks_count": len(management_segments),
-                    "total_segments": len(transcript.segments),
-                },
+            # Build normalized signal (pointer-only: raw content stays in MinIO)
+            normalized.append(
+                NormalizedSignal(
+                    source_type=self.source_type,
+                    source_url=signal.source_url,
+                    content_uri=content_uri,
+                    fingerprint=signal.fingerprint or await self.fingerprint(signal),
+                    structured_payload={
+                        "company_ticker": transcript.company_ticker,
+                        "fiscal_quarter": transcript.fiscal_quarter,
+                        "call_date": transcript.call_date.isoformat(),
+                        "participants": transcript.participants,
+                        "duration_seconds": transcript.duration_seconds,
+                        "segments": [
+                            s.model_dump(mode="json") for s in transcript.segments
+                        ],
+                    },
+                    metadata={
+                        "ticker": transcript.company_ticker,
+                        "fiscal_quarter": transcript.fiscal_quarter,
+                        "sentiment": overall_sentiment,
+                        "management_remarks_count": len(management_segments),
+                        "total_segments": len(transcript.segments),
+                    },
+                )
             )
-            normalized.append(normalized)
 
         return normalized
 
@@ -339,7 +363,7 @@ class EarningsCallAdapter(SourceAdapter):
         self,
         ticker: str,
         quarter: str,
-        raw_data: Dict[str, Any],
+        raw_data: dict[str, Any],
     ) -> str:
         """Upload transcript JSON to MinIO.
 
@@ -351,7 +375,7 @@ class EarningsCallAdapter(SourceAdapter):
         # In production: await minio_client.upload(...)
         return f"s3://stratops-earnings/{key}"
 
-    def _aggregate_sentiment(self, sentiments: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _aggregate_sentiment(self, sentiments: list[dict[str, Any]]) -> dict[str, Any]:
         """Aggregate sentiment scores from multiple segments."""
         if not sentiments:
             return {"label": "neutral", "score": 0.0}

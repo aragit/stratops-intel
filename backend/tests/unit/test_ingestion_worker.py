@@ -4,16 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 from contextlib import asynccontextmanager
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-import redis.asyncio as aioredis
 
-from ingestion.base import AdapterRegistry, IngestionResult, NormalizedSignal, RawSignal, SourceAdapter
-from workers.ingestion_worker import IngestionWorker
+from backend.workers.ingestion_worker import IngestionWorker
+from ingestion.base import (
+    AdapterRegistry,
+    IngestionResult,
+    NormalizedSignal,
+    RawSignal,
+    SourceAdapter,
+)
 
 
 class MockRedis:
@@ -83,12 +87,10 @@ class MockAdapter:
 
     async def fetch(self, config: dict, cursor: str | None = None):
         self.fetch_called = True
-        from ingestion.base import IngestionResult
         return IngestionResult(b"raw data", "text/plain", None, {})
 
     async def parse(self, raw_data: bytes, content_type: str):
         self.parse_called = True
-        from ingestion.base import RawSignal
         return [RawSignal(
             source_type="test",
             source_url="https://test.com",
@@ -102,7 +104,6 @@ class MockAdapter:
 
     async def normalize(self, signals):
         self.normalize_called = True
-        from ingestion.base import NormalizedSignal
         return [NormalizedSignal(
             source_type="test",
             source_url="https://test.com",
@@ -115,8 +116,6 @@ class MockAdapter:
 
 # Need imports
 from contextlib import asynccontextmanager
-from datetime import datetime
-from ingestion.base import IngestionResult, NormalizedSignal, RawSignal
 
 
 class TestIngestionWorker:
@@ -163,7 +162,6 @@ class TestIngestionWorker:
     @pytest.mark.asyncio
     async def test_process_message_full_pipeline(self, worker, mock_redis):
         """Test full pipeline: fetch → parse → fingerprint → dedup → normalize → insert → publish."""
-        from ingestion.base import SourceAdapter
 
         # Register mock adapter
         class TestAdapter(SourceAdapter):
@@ -176,18 +174,15 @@ class TestIngestionWorker:
             config_schema = Config
 
             async def fetch(self, config, cursor=None):
-                from ingestion.base import IngestionResult
                 return IngestionResult(b"raw", "text/plain", None, {})
 
             async def parse(self, raw_data, content_type):
-                from ingestion.base import RawSignal
                 return [RawSignal(source_type="test", source_url="https://test", raw_content=b"content", metadata={"tenant_id": "test-tenant"})]
 
             async def fingerprint(self, signal):
                 return "abc123"
 
             async def normalize(self, signals):
-                from ingestion.base import NormalizedSignal
                 return [NormalizedSignal(
                     source_type="test",
                     source_url="https://test",

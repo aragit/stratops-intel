@@ -14,8 +14,9 @@ from __future__ import annotations
 import contextvars
 import os
 import time
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Optional
+from typing import Any
 from uuid import UUID
 
 import structlog
@@ -29,17 +30,15 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
-from db.models import Base
-
 logger = structlog.get_logger(__name__)
 
-_current_tenant_id: contextvars.ContextVar[Optional[UUID]] = contextvars.ContextVar(
+_current_tenant_id: contextvars.ContextVar[UUID | None] = contextvars.ContextVar(
     "current_tenant_id", default=None
 )
 
 _default_tenant_uuid = UUID("00000000-0000-0000-0000-000000000000")
 
-_session_manager: Optional["TenantSessionManager"] = None
+_session_manager: TenantSessionManager | None = None
 
 
 def _get_database_url() -> str:
@@ -91,8 +90,8 @@ class TenantSessionManager:
         self._database_url = database_url
         self._pool_size = pool_size
         self._max_overflow = max_overflow
-        self._engine: Optional[AsyncEngine] = None
-        self._session_maker: Optional[async_sessionmaker[AsyncSession]] = None
+        self._engine: AsyncEngine | None = None
+        self._session_maker: async_sessionmaker[AsyncSession] | None = None
         self._initialized: bool = False
 
     async def connect(self) -> None:

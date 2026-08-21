@@ -8,16 +8,16 @@ HTTP request, validate credentials against the database, and yield an
 from __future__ import annotations
 
 import hashlib
-from datetime import datetime, timezone
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 from uuid import UUID
 
 import structlog
 from fastapi import Header, HTTPException, Request, status
 from sqlalchemy import select
 
-from db.models import APIKey, Tenant
-from db.tenant_session import TenantSessionManager, get_session_manager
+from backend.db.models import APIKey, Tenant
+from backend.db.tenant_session import get_session_manager
 
 logger = structlog.get_logger(__name__)
 
@@ -77,7 +77,7 @@ async def verify_api_key(request: Request) -> tuple[UUID, list[str]]:
             detail="API key is revoked",
         )
 
-    if db_key.expires_at and db_key.expires_at < datetime.now(timezone.utc):
+    if db_key.expires_at and db_key.expires_at < datetime.now(UTC):
         logger.warning("api_key_expired", key_hash=key_hash[:12], tenant_id=str(db_key.tenant_id))
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

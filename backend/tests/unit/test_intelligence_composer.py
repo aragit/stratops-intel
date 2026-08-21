@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import json
-import time
-from datetime import datetime
 from unittest import mock
 
 import pytest
 
 from backend.intelligence.agents.composer import (
+    Briefing,
     BriefingComposerNode,
     BriefingSection,
-    Briefing,
 )
 
 
@@ -296,7 +294,6 @@ class TestBriefingComposerNode:
         """Executive summary returns None on failure."""
         mock_narrative_client.post.side_effect = Exception("Service down")
 
-        from backend.intelligence.agents.composer import BriefingSection
         summary = await composer._generate_executive_summary([], "001", "trace-001")
         assert summary is None
 

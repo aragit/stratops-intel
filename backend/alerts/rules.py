@@ -5,15 +5,16 @@ Supports threshold, anomaly, correlation, and trend rule types.
 
 from __future__ import annotations
 
-import json
+import re
+import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
-from uuid import uuid4
+from statistics import fmean, pstdev
+from typing import Any
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..agents.extractor import IntelligenceState
+from ..intelligence.agents.extractor import IntelligenceState
 
 logger = structlog.get_logger(__name__)
 
@@ -43,7 +44,7 @@ class AlertRule(BaseModel):
         ...,
         description="Rule type: threshold, anomaly, correlation, trend"
     )
-    condition: Dict[str, Any] = Field(
+    condition: dict[str, Any] = Field(
         ...,
         description="Rule-specific condition",
     )
@@ -51,7 +52,7 @@ class AlertRule(BaseModel):
         default="warning",
         description="Alert severity: info, warning, critical",
     )
-    channels: List[str] = Field(
+    channels: list[str] = Field(
         default_factory=list,
         description="Notification channels: slack, email, webhook",
     )
@@ -82,7 +83,7 @@ class Alert(BaseModel):
     rule_name: str = Field(..., description="Rule name")
     severity: str = Field(..., description="Alert severity")
     message: str = Field(..., description="Human-readable alert message")
-    evidence: Dict[str, Any] = Field(default_factory=dict, description="Pointers to supporting data")
+    evidence: dict[str, Any] = Field(default_factory=dict, description="Pointers to supporting data")
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -96,8 +97,27 @@ class AlertRuleEngine:
     - trend: Trend detected with direction and z-score
     """
 
+    _ANOMALY_SEVERITY_FLOORS: dict[str, float] = {
+        "critical": 0.9,
+        "high": 0.75,
+        "medium": 0.6,
+        "low": 0.4,
+    }
+
+    _MIN_TREND_CHECKPOINTS: int = 3
+
+    # Matches the correlation properties embedded in MERGE statements emitted
+    # by CorrelationEngineNode._build_graph_deltas, e.g.
+    # {type: 'pricing', strength: 0.8, valid_from: '...'}
+    _CORRELATION_PROPS_RE = re.compile(
+        r"\{type:\s*'(?P<corr_type>[a-z_]+)',\s*strength:\s*(?P<strength>[0-9]*\.?[0-9]+)"
+    )
+
+    # Matches entity identifiers inside MERGE node patterns, e.g. {id: 'Apple Inc.'}
+    _ENTITY_ID_RE = re.compile(r"\{id:\s*'([^']+)'")
+
     def __init__(self) -> None:
-        self._operators = {
+        self._operators: dict[str, Any] = {
             "gt": lambda a, b: a > b,
             "gte": lambda a, b: a >= b,
             "lt": lambda a, b: a < b,
@@ -108,9 +128,9 @@ class AlertRuleEngine:
 
     async def evaluate(
         self,
-        state: Any,
-        rules: List[AlertRule],
-    ) -> List[Any]:
+        state: IntelligenceState,
+        rules: list[AlertRule],
+    ) -> list[Alert]:
         """Evaluate all active rules against intelligence state.
 
         Args:
@@ -120,7 +140,7 @@ class AlertRuleEngine:
         Returns:
             List of triggered Alert objects
         """
-        triggered_alerts = []
+        triggered_alerts: list[Alert] = []
 
         for rule in rules:
             if not rule.is_active:
@@ -141,9 +161,9 @@ class AlertRuleEngine:
 
     async def _evaluate_rule(
         self,
-        state: Any,
+        state: IntelligenceState,
         rule: AlertRule,
-    ) -> List[Any]:
+    ) -> list[Alert]:
         """Evaluate a single rule against state."""
         if rule.rule_type == "threshold":
             return await self._evaluate_threshold(state, rule)
@@ -161,7 +181,7 @@ class AlertRuleEngine:
             )
             return []
 
-    async def _evaluate_threshold(self, state: Any, rule: AlertRule) -> List[Any]:
+    async def _evaluate_threshold(self, state: IntelligenceState, rule: AlertRule) -> list[Alert]:
         """Evaluate threshold rule against state.
 
         Condition format:
@@ -182,12 +202,9 @@ class AlertRuleEngine:
             return []
 
         op_func = self._operators[operator]
-        triggered = []
+        triggered: list[Alert] = []
 
-        # Extract metrics from state based on metric type
-        # This would query the state for relevant metrics
-        # For now, we'll check extracted entities and content_uris for relevant data
-        metrics = self._extract_metrics(state, metric)
+        metrics = self._extract_metrics(state, str(metric))
 
         for entity_name, value in metrics.items():
             if entity_filter and entity_filter.get("name") not in entity_name:
@@ -209,31 +226,61 @@ class AlertRuleEngine:
 
         return triggered
 
-    async def _evaluate_anomaly(self, state: Any, rule: AlertRule) -> List[Any]:
+    async def _evaluate_anomaly(self, state: IntelligenceState, rule: AlertRule) -> list[Alert]:
         """Evaluate anomaly rule against state.
+
+        Compares extracted anomaly scores against per-entity baselines from
+        prior executions. An alert fires when an entity's score meets the
+        severity floor AND strictly exceeds its historical baseline.
 
         Condition format:
         {
-            "severity": "high|medium|low",
+            "severity": "critical|high|medium|low",
             "entity_types": ["Company", "Product"]  # optional
         }
         """
         condition = rule.condition
-        target_severity = condition.get("severity", "high")
-        entity_types = condition.get("entity_types", ["Company", "Product"])
+        target_severity = str(condition.get("severity", "high")).lower()
+        entity_types = condition.get("entity_types")
 
-        triggered = []
+        metrics = self._extract_metrics(state)
+        scores = metrics["anomaly_scores"]
+        baselines = metrics["anomaly_baselines"]
+        floor = self._ANOMALY_SEVERITY_FLOORS.get(target_severity, 0.75)
 
-        # Check anomalies in state (from anomaly detector)
-        anomalies = state.get("extracted_entities", [])  # Would come from anomaly detector
-        # For now, check if state has anomaly indicators
+        triggered: list[Alert] = []
+        for entity_name, score in scores.items():
+            if entity_types and not self._entity_matches_type(state, entity_name, entity_types):
+                continue
 
-        # This would check actual anomaly data from state
-        # For now, return empty - actual implementation would query anomaly data
+            baseline = baselines.get(entity_name, 0.0)
+            if score >= floor and score > baseline:
+                triggered.append(
+                    self._create_alert(
+                        rule=rule,
+                        message=(
+                            f"Anomaly detected for {entity_name}: score {score:.2f} "
+                            f"meets '{target_severity}' floor ({floor:.2f}) and exceeds "
+                            f"baseline {baseline:.2f}"
+                        ),
+                        evidence={
+                            "entity": entity_name,
+                            "anomaly_score": score,
+                            "baseline": baseline,
+                            "severity_floor": floor,
+                            "target_severity": target_severity,
+                        },
+                    )
+                )
         return triggered
 
-    async def _evaluate_correlation(self, state: Any, rule: AlertRule) -> List[Any]:
+    async def _evaluate_correlation(self, state: IntelligenceState, rule: AlertRule) -> list[Alert]:
         """Evaluate correlation rule against state.
+
+        Evaluates co-occurrence of entity state changes across the target
+        window by inspecting structured correlation results (when present in
+        state) or by parsing ``correlation_graph_delta`` MERGE statements
+        emitted by the correlation engine.
 
         Condition format:
         {
@@ -243,22 +290,52 @@ class AlertRuleEngine:
         """
         condition = rule.condition
         corr_type = condition.get("correlation_type")
-        min_strength = condition.get("min_strength", 0.7)
+        min_strength = float(condition.get("min_strength", 0.7))
 
         if not corr_type:
             return []
 
-        triggered = []
+        triggered: list[Alert] = []
+        for corr in self._parse_correlations(state):
+            if corr["correlation_type"] != corr_type:
+                continue
+            strength = corr["strength"]
+            if strength < min_strength:
+                continue
 
-        # Check correlations in state (from correlation engine)
-        correlations = state.get("correlation_graph_delta", [])
+            entity_a = corr["entity_a"]
+            entity_b = corr["entity_b"]
+            evidence: dict[str, Any] = {
+                "correlation_type": corr_type,
+                "strength": strength,
+                "min_strength": min_strength,
+                "entity_a": entity_a,
+                "entity_b": entity_b,
+            }
+            if corr.get("valid_from") is not None:
+                evidence["valid_from"] = corr["valid_from"].isoformat()
 
-        # This would check actual correlation data from state
-        # For now, return empty - actual implementation would parse correlation data
+            triggered.append(
+                self._create_alert(
+                    rule=rule,
+                    message=(
+                        f"Correlation '{corr_type}' detected between {entity_a} and "
+                        f"{entity_b} (strength {strength:.2f} >= {min_strength:.2f})"
+                    ),
+                    evidence=evidence,
+                )
+            )
         return triggered
 
-    async def _evaluate_trend(self, state: Any, rule: AlertRule) -> List[Any]:
+    async def _evaluate_trend(self, state: IntelligenceState, rule: AlertRule) -> list[Alert]:
         """Evaluate trend rule against state.
+
+        Computes standard deviation shifts over sequential execution
+        checkpoints: each entity's metric series is split into a historical
+        baseline segment and the most recent checkpoint; the z-score of the
+        recent checkpoint against the baseline segment determines whether the
+        requested direction fired. Structured trend results embedded in state
+        (from the trend analyzer) are also honoured.
 
         Condition format:
         {
@@ -270,41 +347,357 @@ class AlertRuleEngine:
         condition = rule.condition
         trend_type = condition.get("trend_type")
         direction = condition.get("direction")
-        z_score_min = condition.get("z_score_min", 2.0)
+        z_score_min = float(condition.get("z_score_min", 2.0))
 
         if not trend_type or not direction:
             return []
 
-        triggered = []
+        triggered: list[Alert] = []
+        metrics = self._extract_metrics(state)
 
-        # Check trends in state (from trend analyzer)
-        trends = state.get("briefing_section_uris", [])  # Would come from trend analyzer
+        for entity_name, series_by_type in metrics["entity_trends"].items():
+            series = series_by_type.get(trend_type)
+            if not series or len(series) < self._MIN_TREND_CHECKPOINTS:
+                continue
 
-        # This would check actual trend data from state
+            z_score, std_shift = self._compute_trend_shift(series)
+            if z_score is None or not self._direction_matches(z_score, direction, z_score_min):
+                continue
+
+            triggered.append(
+                self._create_alert(
+                    rule=rule,
+                    message=(
+                        f"{trend_type} for {entity_name} is {direction} "
+                        f"(z-score {z_score:.2f}, |z| >= {z_score_min:.2f})"
+                    ),
+                    evidence={
+                        "trend_type": trend_type,
+                        "entity": entity_name,
+                        "direction": direction,
+                        "z_score": round(z_score, 2),
+                        "z_score_min": z_score_min,
+                        "std_shift_ratio": round(std_shift, 3) if std_shift is not None else None,
+                        "checkpoints": len(series),
+                    },
+                )
+            )
+
+        triggered.extend(self._structured_trend_alerts(state, rule, trend_type, direction, z_score_min))
         return triggered
 
-    def _extract_metrics(self, state: Any, metric: str) -> Dict[str, float]:
-        """Extract metric values from state.
+    def _extract_metrics(self, state: IntelligenceState, metric: str | None = None) -> dict[str, Any]:
+        """Extract graph density, anomaly scores, and entity trend vectors.
 
         Args:
-            state: IntelligenceState
-            metric: Metric name to extract
+            state: IntelligenceState produced by the intelligence pipeline.
+            metric: Optional metric name. When provided, a flat
+                ``{entity_name: value}`` mapping for that metric is returned
+                instead of the full bundle (used by threshold rules).
 
         Returns:
-            Dict mapping entity_name to metric value
+            Full bundle when ``metric`` is None::
+
+                {
+                    "graph_density": float,
+                    "anomaly_scores": {entity: score},
+                    "anomaly_baselines": {entity: baseline},
+                    "entity_trends": {entity: {trend_type: [checkpoint values]}},
+                    "pricing_delta": {entity: value},
+                    "mention_frequency": {entity: value},
+                    "hiring_velocity": {entity: value},
+                    "sentiment": {entity: value},
+                }
         """
-        # This would extract actual metrics from state
-        # For now, return empty dict
-        return {}
+        entities = state.get("extracted_entities", []) if isinstance(state, dict) else []
+
+        pricing_delta: dict[str, float] = {}
+        mention_frequency: dict[str, float] = {}
+        hiring_velocity: dict[str, float] = {}
+        sentiment: dict[str, float] = {}
+        anomaly_scores: dict[str, float] = {}
+        anomaly_baselines: dict[str, float] = {}
+        entity_trends: dict[str, dict[str, list[float]]] = {}
+
+        for entity in entities:
+            if not isinstance(entity, dict):
+                continue
+            name = str(entity.get("company_name") or entity.get("name") or "").strip()
+            if not name:
+                continue
+
+            self._assign_metric(pricing_delta, name, entity, ("pricing_delta", "price_change"))
+            self._assign_metric(mention_frequency, name, entity, ("mention_count", "mentions", "mention_frequency"))
+            self._assign_metric(hiring_velocity, name, entity, ("hiring_velocity", "new_hires"))
+            self._assign_metric(sentiment, name, entity, ("sentiment_score", "sentiment"))
+
+            score = self._coerce_float(entity.get("anomaly_score"))
+            if score is not None:
+                anomaly_scores[name] = score
+            baseline = self._coerce_float(entity.get("anomaly_baseline"))
+            if baseline is not None:
+                anomaly_baselines[name] = baseline
+
+            history = entity.get("metrics_history")
+            if isinstance(history, dict):
+                typed_series: dict[str, list[float]] = {}
+                for hist_key, values in history.items():
+                    if isinstance(values, (list, tuple)):
+                        parsed = [v for v in (self._coerce_float(x) for x in values) if v is not None]
+                        if parsed:
+                            typed_series[str(hist_key)] = parsed
+                if typed_series:
+                    entity_trends[name] = typed_series
+
+        graph_density = self._compute_graph_density(state)
+
+        bundle: dict[str, Any] = {
+            "graph_density": graph_density,
+            "anomaly_scores": anomaly_scores,
+            "anomaly_baselines": anomaly_baselines,
+            "entity_trends": entity_trends,
+            "pricing_delta": pricing_delta,
+            "mention_frequency": mention_frequency,
+            "hiring_velocity": hiring_velocity,
+            "sentiment": sentiment,
+        }
+
+        if metric is not None:
+            return bundle.get(metric, {})
+
+        return bundle
+
+    @staticmethod
+    def _coerce_float(value: Any) -> float | None:
+        """Convert *value* to float, returning None when not numeric."""
+        if isinstance(value, bool) or value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value)
+            except ValueError:
+                return None
+        return None
+
+    @staticmethod
+    def _assign_metric(
+        target: dict[str, float],
+        name: str,
+        entity: dict[str, Any],
+        keys: tuple[str, ...],
+    ) -> None:
+        """Copy the first numeric key present on *entity* into *target*."""
+        for key in keys:
+            value = AlertRuleEngine._coerce_float(entity.get(key))
+            if value is not None:
+                target[name] = value
+                return
+
+    @staticmethod
+    def _compute_graph_density(state: IntelligenceState) -> float:
+        """Compute graph density from the correlation graph delta.
+
+        Density = edges / possible edges among unique entities, clamped to
+        [0.0, 1.0]. Returns 0.0 when fewer than two entities are present.
+        """
+        edges = 0
+        nodes: set[str] = set()
+        for delta in state.get("correlation_graph_delta", []) if isinstance(state, dict) else []:
+            nodes.update(match.group(1) for match in AlertRuleEngine._ENTITY_ID_RE.finditer(delta))
+            if AlertRuleEngine._CORRELATION_PROPS_RE.search(delta):
+                edges += 1
+
+        if len(nodes) < 2:
+            return 0.0
+        possible = len(nodes) * (len(nodes) - 1) / 2
+        return round(min(1.0, edges / possible), 4)
+
+    def _parse_correlations(self, state: IntelligenceState) -> list[dict[str, Any]]:
+        """Collect correlations from structured state or graph delta strings."""
+        correlations: list[dict[str, Any]] = []
+
+        structured = state.get("correlations") if isinstance(state, dict) else None
+        if isinstance(structured, list):
+            for item in structured:
+                if not isinstance(item, dict):
+                    continue
+                strength = self._coerce_float(item.get("strength"))
+                corr_type = item.get("correlation_type")
+                if corr_type is None or strength is None:
+                    continue
+                valid_from = item.get("valid_from")
+                if isinstance(valid_from, str):
+                    try:
+                        valid_from_dt: datetime | None = datetime.fromisoformat(valid_from)
+                    except ValueError:
+                        valid_from_dt = None
+                elif isinstance(valid_from, datetime):
+                    valid_from_dt = valid_from
+                else:
+                    valid_from_dt = None
+                correlations.append(
+                    {
+                        "correlation_type": str(corr_type),
+                        "strength": max(0.0, min(1.0, strength)),
+                        "entity_a": str(
+                            (item.get("entity_a") or {}).get("name")
+                            if isinstance(item.get("entity_a"), dict)
+                            else item.get("entity_a", "unknown")
+                        ),
+                        "entity_b": str(
+                            (item.get("entity_b") or {}).get("name")
+                            if isinstance(item.get("entity_b"), dict)
+                            else item.get("entity_b", "unknown")
+                        ),
+                        "valid_from": valid_from_dt,
+                    }
+                )
+            if correlations:
+                return correlations
+
+        deltas = state.get("correlation_graph_delta", []) if isinstance(state, dict) else []
+        for delta in deltas:
+            props = self._CORRELATION_PROPS_RE.search(delta)
+            if props is None:
+                continue
+            entity_ids = self._ENTITY_ID_RE.findall(delta)
+            if len(entity_ids) < 2:
+                continue
+            valid_from: datetime | None = None
+            raw_valid_from = delta.split("valid_from: '")[-1].split("'")[0] if "valid_from: '" in delta else ""
+            if raw_valid_from:
+                try:
+                    valid_from = datetime.fromisoformat(raw_valid_from)
+                except ValueError:
+                    valid_from = None
+            correlations.append(
+                {
+                    "correlation_type": props.group("corr_type"),
+                    "strength": max(0.0, min(1.0, float(props.group("strength")))),
+                    "entity_a": entity_ids[0],
+                    "entity_b": entity_ids[1],
+                    "valid_from": valid_from,
+                }
+            )
+        return correlations
+
+    def _structured_trend_alerts(
+        self,
+        state: IntelligenceState,
+        rule: AlertRule,
+        trend_type: str,
+        direction: str,
+        z_score_min: float,
+    ) -> list[Alert]:
+        """Build alerts from structured TrendResult dicts embedded in state."""
+        alerts: list[Alert] = []
+        trends = state.get("trends") if isinstance(state, dict) else None
+        if not isinstance(trends, list):
+            return alerts
+
+        for trend in trends:
+            if not isinstance(trend, dict):
+                continue
+            if trend.get("trend_type") != trend_type:
+                continue
+            z_score = self._coerce_float(trend.get("z_score"))
+            if z_score is None or not self._direction_matches(z_score, direction, z_score_min):
+                continue
+
+            entity_name = str(trend.get("entity_name", "unknown"))
+            confidence = self._coerce_float(trend.get("confidence"))
+            evidence: dict[str, Any] = {
+                "trend_type": trend_type,
+                "entity": entity_name,
+                "direction": str(trend.get("direction", direction)),
+                "z_score": round(z_score, 2),
+                "z_score_min": z_score_min,
+                "source": "trend_analyzer",
+            }
+            if confidence is not None:
+                evidence["confidence"] = confidence
+
+            alerts.append(
+                self._create_alert(
+                    rule=rule,
+                    message=(
+                        f"{trend_type} for {entity_name} is {trend.get('direction', direction)} "
+                        f"(z-score {z_score:.2f}, |z| >= {z_score_min:.2f})"
+                    ),
+                    evidence=evidence,
+                )
+            )
+        return alerts
+
+    @staticmethod
+    def _compute_trend_shift(series: list[float]) -> tuple[float | None, float | None]:
+        """Compute z-score and standard-deviation shift over checkpoints.
+
+        The final checkpoint is treated as the recent observation; all prior
+        checkpoints form the historical baseline segment.
+
+        Returns:
+            ``(z_score, std_shift_ratio)`` where ``std_shift_ratio`` is the
+            ratio of recent-segment to historical-segment population standard
+            deviation. ``(None, None)`` when the shift cannot be computed.
+        """
+        if len(series) < AlertRuleEngine._MIN_TREND_CHECKPOINTS:
+            return None, None
+
+        historical = series[:-1]
+        recent = series[-1]
+
+        hist_mean = fmean(historical)
+        hist_std = pstdev(historical)
+        if hist_std == 0:
+            return None, None
+
+        z_score = (recent - hist_mean) / hist_std
+
+        recent_segment = series[max(1, len(series) // 2):]
+        recent_std = pstdev(recent_segment) if len(recent_segment) > 1 else 0.0
+        std_shift = recent_std / hist_std
+
+        return z_score, std_shift
+
+    @staticmethod
+    def _direction_matches(z_score: float, direction: str, z_score_min: float) -> bool:
+        """Check whether *z_score* satisfies the requested trend direction."""
+        if direction == "up":
+            return z_score >= z_score_min
+        if direction == "down":
+            return z_score <= -z_score_min
+        if direction == "anomalous":
+            return abs(z_score) >= z_score_min
+        return False
+
+    def _entity_matches_type(self, state: IntelligenceState, entity_name: str, entity_types: list[str]) -> bool:
+        """Check whether *entity_name* resolves to one of *entity_types*.
+
+        Entities without a resolvable type record are always included.
+        """
+        entities = state.get("extracted_entities", []) if isinstance(state, dict) else []
+        for entity in entities:
+            if not isinstance(entity, dict):
+                continue
+            name = str(entity.get("company_name") or entity.get("name") or "").strip()
+            if name != entity_name:
+                continue
+            entity_type = entity.get("type") or entity.get("entity_type")
+            if entity_type is None:
+                return True
+            return str(entity_type) in entity_types
+        return True
 
     def _create_alert(
         self,
         rule: AlertRule,
         message: str,
-        evidence: Dict[str, Any],
-    ) -> Any:
+        evidence: dict[str, Any],
+    ) -> Alert:
         """Create an Alert object from a triggered rule."""
-        from ..alerts.rules import Alert
         return Alert(
             tenant_id=rule.tenant_id,
             rule_id=rule.id,

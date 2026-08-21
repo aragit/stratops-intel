@@ -7,13 +7,10 @@ and checkpoint persistence.
 from __future__ import annotations
 
 import json
-import asyncio
-import uuid
-from unittest import mock
 
 import pytest
 
-from backend.intelligence import IntelligenceState, EntityExtractorNode, build_extractor_graph
+from backend.intelligence import EntityExtractorNode, IntelligenceState, build_extractor_graph
 
 
 async def _async_coro(value):
@@ -123,7 +120,7 @@ class TestEntityExtractorNode:
                 })()
             })()
         })()
-        
+
         # Monkeypatch aiobotocore.session.get_session
         original_import = __import__
         def mock_import(name, *args, **kwargs):
@@ -136,14 +133,14 @@ class TestEntityExtractorNode:
                 sys.modules['aiobotocore.session'] = submod
                 return mod
             return original_import(name, *args, **kwargs)
-        
+
         monkeypatch.setattr('builtins.__import__', mock_import)
-        
+
         try:
             state = await extractor_node(sample_state)
         finally:
             # Restore original import
-            monkepatches.undo()
+            monkeypatch.undo()
 
         # Verify pointer-only: no raw content in state
         state_size = len(json.dumps(state).encode("utf-8"))
@@ -220,7 +217,6 @@ class TestBuildExtractorGraph:
 
     def test_graph_state_type(self) -> None:
         """The graph should use IntelligenceState as state type."""
-        from backend.intelligence import IntelligenceState
         graph = build_extractor_graph()
         # Check that the graph was created with the right state type
         assert graph is not None

@@ -7,7 +7,7 @@ Uses UNWIND ... MERGE pattern for micro-batching. Pointer-only state.
 from __future__ import annotations
 
 import time
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 from neo4j import AsyncGraphDatabase
@@ -38,7 +38,7 @@ class Neo4jClient:
         self.uri = uri
         self.user = user
         self.password = password
-        self._driver: Optional[Any] = None
+        self._driver: Any | None = None
         self._initialized = False
 
     async def _ensure_initialized(self) -> None:
@@ -91,7 +91,7 @@ class Neo4jClient:
 
                 # Return single record if exactly one, otherwise return records
                 if len(records) == 1:
-                    return await records[0]
+                    return records[0]
                 return records
 
         except Exception as e:
@@ -114,7 +114,7 @@ class Neo4jClient:
         logger.info("running_neo4j_schema_init")
         try:
             # Read and execute the schema file
-            with open("backend/db/neo4j_schema.cypher", "r") as f:
+            with open("backend/db/neo4j_schema.cypher") as f:
                 schema_sql = f.read()
 
             # Execute each statement separately

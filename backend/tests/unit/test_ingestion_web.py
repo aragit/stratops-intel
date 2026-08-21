@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from ingestion.adapters.web import WebMonitorAdapter, WebMonitorConfig
-from ingestion.base import IngestionResult, NormalizedSignal, RawSignal
+from ingestion.base import RawSignal
 
 
 class MockPage:

@@ -6,11 +6,10 @@ Uses sklearn.ensemble.IsolationForest for unsupervised anomaly detection.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import time
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import structlog
@@ -30,9 +29,9 @@ class AnomalyResult(BaseModel):
     entity_type: str = Field(..., description="Entity type: Company, Product")
     entity_name: str = Field(..., description="Entity identifier")
     anomaly_score: float = Field(..., description="Isolation Forest anomaly score (negative = more anomalous)")
-    features: Dict[str, float] = Field(..., description="Feature values that triggered anomaly")
+    features: dict[str, float] = Field(..., description="Feature values that triggered anomaly")
     severity: str = Field(..., description="Severity: low, medium, high")
-    recommended_action: Optional[str] = Field(None, description="LLM-generated recommendation")
+    recommended_action: str | None = Field(None, description="LLM-generated recommendation")
 
 
 class AnomalyDetectorNode:
@@ -81,14 +80,14 @@ class AnomalyDetectorNode:
         self.lookback_days = lookback_days
         self.retrain_interval_hours = retrain_interval_hours
 
-        self._model: Optional[IsolationForest] = None
-        self._feature_names: List[str] = [
+        self._model: IsolationForest | None = None
+        self._feature_names: list[str] = [
             "pricing_volatility",
             "mention_frequency_delta",
             "hiring_velocity",
             "sentiment_variance",
         ]
-        self._last_trained: Optional[datetime] = None
+        self._last_trained: datetime | None = None
         self._bucket_prefix = "stratops-anomalies"
 
     async def __call__(self, state: IntelligenceState) -> IntelligenceState:
@@ -162,7 +161,7 @@ class AnomalyDetectorNode:
         if (self._model is None or
             self._last_trained is None or
             (now - self._last_trained).total_seconds() > self.retrain_interval_hours * 3600):
-            
+
             await self._train_model(tenant_id)
 
     async def _train_model(self, tenant_id: str) -> None:
@@ -210,14 +209,14 @@ class AnomalyDetectorNode:
         tenant_id: str,
         window_start: datetime,
         window_end: datetime,
-    ) -> List[Dict[str, float]]:
+    ) -> list[dict[str, float]]:
         """Extract feature vectors for all entities in training window."""
         # This would query the database for historical features
         # For now, return mock data
         # In production, query actual time-series data and compute features
         return []
 
-    async def _extract_entity_features(self, tenant_id: str) -> Dict[str, Dict[str, float]]:
+    async def _extract_entity_features(self, tenant_id: str) -> dict[str, dict[str, float]]:
         """Extract current feature vectors for all entities.
 
         Returns dict of entity_name -> {feature_name: value}
@@ -228,13 +227,13 @@ class AnomalyDetectorNode:
 
     async def _detect_anomalies(
         self,
-        entity_features: Dict[str, Dict[str, float]],
-    ) -> List[AnomalyResult]:
+        entity_features: dict[str, dict[str, float]],
+    ) -> list[AnomalyResult]:
         """Detect anomalies using trained IsolationForest model."""
         if not self._model:
             return []
 
-        anomalies: List[AnomalyResult] = []
+        anomalies: list[AnomalyResult] = []
 
         for entity_name, features in entity_features.items():
             # Ensure feature order matches training
@@ -311,8 +310,8 @@ class AnomalyDetectorNode:
         self,
         tenant_id: str,
         trace_id: str,
-        anomalies: List[AnomalyResult],
-    ) -> List[str]:
+        anomalies: list[AnomalyResult],
+    ) -> list[str]:
         """Write anomaly results to MinIO as JSON."""
         if not anomalies:
             return []

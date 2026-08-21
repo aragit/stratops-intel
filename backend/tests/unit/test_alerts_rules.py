@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from unittest import mock
 
 import pytest
 
 from backend.alerts.rules import (
-    AlertRuleEngine,
-    AlertRule,
     Alert,
+    AlertRule,
+    AlertRuleEngine,
 )
 
 
@@ -287,7 +286,7 @@ class TestAlertRuleEngine:
 
     def test_create_alert_structure(self):
         """Test alert creation with proper structure."""
-        from backend.alerts.rules import AlertRuleEngine, Alert
+        from backend.alerts.rules import Alert, AlertRuleEngine
 
         engine = AlertRuleEngine()
         rule = mock.MagicMock()
@@ -307,3 +306,414 @@ class TestAlertRuleEngine:
         assert alert.evidence == {"key": "value"}
         assert alert.id
         assert alert.created_at
+
+class TestExtractMetrics:
+    """Tests for AlertRuleEngine._extract_metrics."""
+
+    @pytest.fixture
+    def engine(self) -> AlertRuleEngine:
+        return AlertRuleEngine()
+
+    @pytest.fixture
+    def rich_state(self) -> dict:
+        return {
+            "tenant_id": "001",
+            "trace_id": "trace-001",
+            "signal_uris": [],
+            "content_uris": [],
+            "briefing_section_uris": [],
+            "extracted_entities": [
+                {
+                    "company_name": "Apple",
+                    "type": "Company",
+                    "anomaly_score": 0.92,
+                    "anomaly_baseline": 0.4,
+                    "mention_count": 12,
+                    "pricing_delta": 0.22,
+                    "metrics_history": {"pricing": [10.0, 10.5, 11.0, 14.0]},
+                },
+                {
+                    "company_name": "Google",
+                    "type": "Company",
+                    "anomaly_score": 0.3,
+                },
+            ],
+            "correlation_graph_delta": [
+                "MERGE (a:Entity {id: 'Apple'})-[r:CORRELATED_WITH "
+                "{type: 'pricing', strength: 0.85, valid_from: '2026-08-01T00:00:00'}]"
+                "->(b:Entity {id: 'Google'})",
+            ],
+        }
+
+    def test_full_bundle(self, engine: AlertRuleEngine, rich_state: dict) -> None:
+        metrics = engine._extract_metrics(rich_state)
+
+        assert set(metrics.keys()) == {
+            "graph_density",
+            "anomaly_scores",
+            "anomaly_baselines",
+            "entity_trends",
+            "pricing_delta",
+            "mention_frequency",
+            "hiring_velocity",
+            "sentiment",
+        }
+        assert metrics["anomaly_scores"] == {"Apple": 0.92, "Google": 0.3}
+        assert metrics["anomaly_baselines"] == {"Apple": 0.4}
+        assert metrics["entity_trends"]["Apple"]["pricing"] == [10.0, 10.5, 11.0, 14.0]
+        assert metrics["mention_frequency"] == {"Apple": 12}
+        assert 0.0 <= metrics["graph_density"] <= 1.0
+
+    def test_graph_density_computation(self, engine: AlertRuleEngine, rich_state: dict) -> None:
+        # 2 nodes, 1 edge -> density = 1 / 1
+        assert engine._extract_metrics(rich_state)["graph_density"] == 1.0
+
+    def test_graph_density_no_edges(self, engine: AlertRuleEngine) -> None:
+        state = {"correlation_graph_delta": []}
+        assert engine._extract_metrics(state)["graph_density"] == 0.0
+
+    def test_flat_metric_query(self, engine: AlertRuleEngine, rich_state: dict) -> None:
+        flat = engine._extract_metrics(rich_state, "pricing_delta")
+        assert flat == {"Apple": 0.22}
+
+    def test_flat_metric_unknown_returns_empty(self, engine: AlertRuleEngine, rich_state: dict) -> None:
+        assert engine._extract_metrics(rich_state, "nonexistent") == {}
+
+
+class TestAnomalyEvaluator:
+    """Tests for the anomaly rule evaluator."""
+
+    @pytest.fixture
+    def engine(self) -> AlertRuleEngine:
+        return AlertRuleEngine()
+
+    @pytest.mark.asyncio
+    async def test_triggers_above_floor_and_baseline(self, engine: AlertRuleEngine) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Anomaly High",
+            rule_type="anomaly",
+            condition={"severity": "high"},
+        )
+        state = {
+            "extracted_entities": [
+                {"company_name": "Apple", "anomaly_score": 0.92, "anomaly_baseline": 0.4},
+            ],
+        }
+
+        alerts = await engine._evaluate_anomaly(state, rule)
+
+        assert len(alerts) == 1
+        assert alerts[0].evidence["entity"] == "Apple"
+        assert alerts[0].evidence["anomaly_score"] == 0.92
+        assert alerts[0].evidence["baseline"] == 0.4
+
+    @pytest.mark.asyncio
+    async def test_no_trigger_below_severity_floor(self, engine: AlertRuleEngine) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Anomaly Critical",
+            rule_type="anomaly",
+            condition={"severity": "critical"},
+        )
+        state = {
+            "extracted_entities": [
+                {"company_name": "Apple", "anomaly_score": 0.8},
+            ],
+        }
+
+        alerts = await engine._evaluate_anomaly(state, rule)
+        assert alerts == []
+
+    @pytest.mark.asyncio
+    async def test_no_trigger_at_or_below_baseline(self, engine: AlertRuleEngine) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Anomaly High",
+            rule_type="anomaly",
+            condition={"severity": "high"},
+        )
+        state = {
+            "extracted_entities": [
+                {"company_name": "Apple", "anomaly_score": 0.9, "anomaly_baseline": 0.9},
+            ],
+        }
+
+        alerts = await engine._evaluate_anomaly(state, rule)
+        assert alerts == []
+
+    @pytest.mark.asyncio
+    async def test_entity_type_filter(self, engine: AlertRuleEngine) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Company Anomalies Only",
+            rule_type="anomaly",
+            condition={"severity": "low", "entity_types": ["Company"]},
+        )
+        state = {
+            "extracted_entities": [
+                {"company_name": "Apple", "type": "Company", "anomaly_score": 0.5},
+                {"company_name": "Widget", "type": "Product", "anomaly_score": 0.95},
+            ],
+        }
+
+        alerts = await engine._evaluate_anomaly(state, rule)
+
+        assert len(alerts) == 1
+        assert alerts[0].evidence["entity"] == "Apple"
+
+
+class TestCorrelationEvaluator:
+    """Tests for the correlation rule evaluator."""
+
+    @pytest.fixture
+    def engine(self) -> AlertRuleEngine:
+        return AlertRuleEngine()
+
+    @pytest.fixture
+    def merge_delta(self) -> str:
+        return (
+            "MERGE (a:Entity {id: 'Apple'})-[r:CORRELATED_WITH "
+            "{type: 'pricing', strength: 0.85, valid_from: '2026-08-01T00:00:00'}]"
+            "->(b:Entity {id: 'Google'})"
+        )
+
+    @pytest.mark.asyncio
+    async def test_triggers_on_strong_correlation(self, engine: AlertRuleEngine, merge_delta: str) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Pricing Correlation",
+            rule_type="correlation",
+            condition={"correlation_type": "pricing", "min_strength": 0.7},
+        )
+        state = {"correlation_graph_delta": [merge_delta]}
+
+        alerts = await engine._evaluate_correlation(state, rule)
+
+        assert len(alerts) == 1
+        assert alerts[0].evidence["strength"] == 0.85
+        assert alerts[0].evidence["entity_a"] == "Apple"
+        assert alerts[0].evidence["entity_b"] == "Google"
+
+    @pytest.mark.asyncio
+    async def test_no_trigger_below_min_strength(self, engine: AlertRuleEngine, merge_delta: str) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Strong Pricing Correlation",
+            rule_type="correlation",
+            condition={"correlation_type": "pricing", "min_strength": 0.9},
+        )
+        state = {"correlation_graph_delta": [merge_delta]}
+
+        alerts = await engine._evaluate_correlation(state, rule)
+        assert alerts == []
+
+    @pytest.mark.asyncio
+    async def test_no_trigger_on_type_mismatch(self, engine: AlertRuleEngine, merge_delta: str) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Talent Correlation",
+            rule_type="correlation",
+            condition={"correlation_type": "talent", "min_strength": 0.5},
+        )
+        state = {"correlation_graph_delta": [merge_delta]}
+
+        alerts = await engine._evaluate_correlation(state, rule)
+        assert alerts == []
+
+    @pytest.mark.asyncio
+    async def test_structured_correlations_honored(self, engine: AlertRuleEngine) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Co-mention",
+            rule_type="correlation",
+            condition={"correlation_type": "co_mention", "min_strength": 0.7},
+        )
+        state = {
+            "correlations": [
+                {
+                    "correlation_type": "co_mention",
+                    "strength": 0.8,
+                    "entity_a": {"type": "Company", "name": "Apple"},
+                    "entity_b": {"type": "Company", "name": "Google"},
+                    "valid_from": "2026-08-01T00:00:00",
+                },
+            ],
+        }
+
+        alerts = await engine._evaluate_correlation(state, rule)
+
+        assert len(alerts) == 1
+        assert alerts[0].evidence["entity_a"] == "Apple"
+
+    @pytest.mark.asyncio
+    async def test_missing_correlation_type_returns_empty(self, engine: AlertRuleEngine) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Bad Rule",
+            rule_type="correlation",
+            condition={},
+        )
+
+        alerts = await engine._evaluate_correlation({}, rule)
+        assert alerts == []
+
+
+class TestTrendEvaluator:
+    """Tests for the trend rule evaluator."""
+
+    @pytest.fixture
+    def engine(self) -> AlertRuleEngine:
+        return AlertRuleEngine()
+
+    @pytest.mark.asyncio
+    async def test_upward_trend_triggers(self, engine: AlertRuleEngine) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Pricing Up",
+            rule_type="trend",
+            condition={"trend_type": "pricing", "direction": "up", "z_score_min": 2.0},
+        )
+        state = {
+            "extracted_entities": [
+                {
+                    "company_name": "Apple",
+                    "metrics_history": {"pricing": [10.0, 10.5, 11.0, 14.0]},
+                },
+            ],
+        }
+
+        alerts = await engine._evaluate_trend(state, rule)
+
+        assert len(alerts) == 1
+        assert alerts[0].evidence["direction"] == "up"
+        assert alerts[0].evidence["z_score"] >= 2.0
+        assert alerts[0].evidence["checkpoints"] == 4
+
+    @pytest.mark.asyncio
+    async def test_downward_trend_triggers(self, engine: AlertRuleEngine) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Mentions Down",
+            rule_type="trend",
+            condition={"trend_type": "mention_frequency", "direction": "down", "z_score_min": 1.5},
+        )
+        state = {
+            "extracted_entities": [
+                {
+                    "company_name": "Apple",
+                    "metrics_history": {"mention_frequency": [50.0, 48.0, 20.0]},
+                },
+            ],
+        }
+
+        alerts = await engine._evaluate_trend(state, rule)
+
+        assert len(alerts) == 1
+        assert alerts[0].evidence["z_score"] <= -1.5
+
+    @pytest.mark.asyncio
+    async def test_direction_mismatch_does_not_trigger(self, engine: AlertRuleEngine) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Pricing Down",
+            rule_type="trend",
+            condition={"trend_type": "pricing", "direction": "down", "z_score_min": 2.0},
+        )
+        state = {
+            "extracted_entities": [
+                {
+                    "company_name": "Apple",
+                    "metrics_history": {"pricing": [10.0, 10.5, 11.0, 14.0]},
+                },
+            ],
+        }
+
+        alerts = await engine._evaluate_trend(state, rule)
+        assert alerts == []
+
+    @pytest.mark.asyncio
+    async def test_insufficient_checkpoints_skipped(self, engine: AlertRuleEngine) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Pricing Up",
+            rule_type="trend",
+            condition={"trend_type": "pricing", "direction": "up", "z_score_min": 1.0},
+        )
+        state = {
+            "extracted_entities": [
+                {
+                    "company_name": "Apple",
+                    "metrics_history": {"pricing": [10.0, 99.0]},
+                },
+            ],
+        }
+
+        alerts = await engine._evaluate_trend(state, rule)
+        assert alerts == []
+
+    @pytest.mark.asyncio
+    async def test_zero_variance_series_skipped(self, engine: AlertRuleEngine) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Flat Pricing",
+            rule_type="trend",
+            condition={"trend_type": "pricing", "direction": "up", "z_score_min": 1.0},
+        )
+        state = {
+            "extracted_entities": [
+                {
+                    "company_name": "Apple",
+                    "metrics_history": {"pricing": [10.0, 10.0, 10.0]},
+                },
+            ],
+        }
+
+        alerts = await engine._evaluate_trend(state, rule)
+        assert alerts == []
+
+    @pytest.mark.asyncio
+    async def test_structured_trends_from_state(self, engine: AlertRuleEngine) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Hiring Up",
+            rule_type="trend",
+            condition={"trend_type": "hiring", "direction": "up", "z_score_min": 2.0},
+        )
+        state = {
+            "trends": [
+                {
+                    "trend_type": "hiring",
+                    "entity_name": "Apple",
+                    "direction": "up",
+                    "z_score": 2.7,
+                    "confidence": 0.9,
+                },
+            ],
+        }
+
+        alerts = await engine._evaluate_trend(state, rule)
+
+        assert len(alerts) == 1
+        assert alerts[0].evidence["source"] == "trend_analyzer"
+
+    @pytest.mark.asyncio
+    async def test_anomalous_direction_matches_negative_z(self, engine: AlertRuleEngine) -> None:
+        rule = AlertRule(
+            tenant_id="001",
+            name="Sentiment Anomalous",
+            rule_type="trend",
+            condition={"trend_type": "sentiment", "direction": "anomalous", "z_score_min": 2.0},
+        )
+        state = {
+            "extracted_entities": [
+                {
+                    "company_name": "Apple",
+                    "metrics_history": {"sentiment": [0.5, 0.52, -0.4]},
+                },
+            ],
+        }
+
+        alerts = await engine._evaluate_trend(state, rule)
+
+        assert len(alerts) == 1

@@ -15,9 +15,10 @@ import json
 import signal
 import time
 from abc import ABC, abstractmethod
-from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Optional
-from uuid import UUID, uuid4
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from typing import Any
+from uuid import uuid4
 
 import redis.asyncio as redis_asyncio
 import structlog
@@ -52,7 +53,7 @@ async def _with_redis_retry(
     Raises:
         redis.exceptions.ConnectionError: If all retries are exhausted.
     """
-    last_exc: Optional[RedisConnectionError] = None
+    last_exc: RedisConnectionError | None = None
     for attempt in range(_MAX_RETRIES):
         try:
             return await operation(*args, **kwargs)
@@ -120,7 +121,7 @@ class StreamProducer(ABC):
         if "trace_id" not in envelope:
             envelope["trace_id"] = str(uuid4())
 
-        envelope["published_at"] = datetime.now(timezone.utc).isoformat()
+        envelope["published_at"] = datetime.now(UTC).isoformat()
 
         return envelope
 
@@ -267,7 +268,7 @@ class StreamConsumer(ABC):
         self._batch_size = batch_size
         self._block_ms = block_ms
         self._running: bool = False
-        self._task: Optional[asyncio.Task[None]] = None
+        self._task: asyncio.Task[None] | None = None
         self._signal_handlers_installed: bool = False
 
         logger.debug(

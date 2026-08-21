@@ -11,17 +11,23 @@ uses the admin (superuser) engine to bypass RLS; only test assertions use testus
 from __future__ import annotations
 
 import hashlib
-import os
-from typing import Any, AsyncGenerator, Generator
+from collections.abc import AsyncGenerator, Generator
+from typing import Any
 from unittest.mock import AsyncMock
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import pytest
 import redis.asyncio as aioredis
 import structlog
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.pool import NullPool
+
 
 # Lazy import for aiobotocore to avoid OpenSSL conflicts
 def _get_aiobotocore():
@@ -55,8 +61,8 @@ try:
 except ImportError:
     MinioContainer = None
 
-from db.models import APIKey, Base, Tenant, User
-from db.tenant_session import TenantSessionManager, _session_manager
+from backend.db.models import APIKey, Base, Tenant, User
+from backend.db.tenant_session import TenantSessionManager
 
 logger = structlog.get_logger(__name__)
 
@@ -133,7 +139,7 @@ async def integration_engines(postgres_container: PostgresContainer) -> AsyncGen
             await conn.execute(text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;"))
             await conn.execute(text(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY;"))
             await conn.execute(text(f"GRANT ALL ON TABLE {table} TO testuser;"))
-            await conn.execute(text(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO testuser;"))
+            await conn.execute(text("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO testuser;"))
 
         await conn.execute(text("""
             CREATE POLICY tenant_isolation ON tenants
@@ -373,10 +379,9 @@ async def integration_gateway(
     that gateway endpoints (login, /health/tenant, etc.) work without
     requiring the full lifespan.
     """
-    from unittest.mock import patch, MagicMock
-    from httpx import ASGITransport, AsyncClient
+    from unittest.mock import MagicMock, patch
 
-    from sqlalchemy.pool import NullPool
+    from httpx import ASGITransport, AsyncClient
 
     manager = TenantSessionManager.__new__(TenantSessionManager)
     manager._engine = integration_engine

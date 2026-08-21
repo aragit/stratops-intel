@@ -8,40 +8,39 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-import time
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
-from typing import Any, AsyncGenerator
-from uuid import UUID, uuid4
+from datetime import UTC, datetime
+from typing import Any
+from uuid import UUID
 
-import jwt
 import redis.asyncio as aioredis
 import structlog
-from fastapi import Body, Depends, FastAPI, HTTPException, Request, status
+from fastapi import Body, Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
 
-from api.auth import (
-    RoleChecker,
+from backend.api.auth import (
     create_access_token,
     create_refresh_token,
     decode_token,
     get_current_user,
-    get_current_user_with_api_key,
-    hash_password,
     verify_password,
 )
-from api.middleware import RateLimitMiddleware, RequestLoggingMiddleware, TenantContextMiddleware
-from db.models import APIKey, Tenant, User
-from db.tenant_session import (
-    TenantSessionManager,
+from backend.api.middleware import (
+    RateLimitMiddleware,
+    RequestLoggingMiddleware,
+    TenantContextMiddleware,
+)
+from backend.db.models import APIKey, User
+from backend.db.tenant_session import (
     close_database,
     get_session_manager,
     initialize_database,
 )
-from streams.keys import StreamKeyBuilder
+from backend.streams.keys import StreamKeyBuilder
 
 logger = structlog.get_logger(__name__)
 
@@ -89,6 +88,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Middleware executes outermost-first: the LAST add_middleware call runs
+# first. Tenant context must be extracted before rate limiting so that
+# rate-limit keys can be scoped by tenant_id.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -97,9 +99,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
-app.add_middleware(TenantContextMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(RateLimitMiddleware, max_requests=100, window_seconds=60)
+app.add_middleware(TenantContextMiddleware)
 
 
 # ---------------------------------------------------------------------------
@@ -201,7 +203,7 @@ async def create_api_key(
                 name=name,
                 scopes={},
                 is_active=True,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
             session.add(api_key)
             await session.commit()

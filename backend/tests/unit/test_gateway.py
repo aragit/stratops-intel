@@ -6,7 +6,6 @@ Tests health endpoints, auth flow, rate limiting, and CORS headers.
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
