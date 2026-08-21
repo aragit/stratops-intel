@@ -25,26 +25,26 @@ The architecture is grounded in **deterministic governance**: PostgreSQL Row-Lev
 ```mermaid
 flowchart LR
     subgraph Layer_1__Gateway_Guardrails
-        G1[Async API Gateway<br/>FastAPI + JWT + API Key]:::gateway
-        G2[Redis Lua Sliding-Window Rate Limiter]:::redis
-        G3[Tenant RLS Context Middleware]:::tenant
-        G4[Semantic Execution Cache]:::cache
+        G1[Async API Gateway<br/>FastAPI + JWT + API Key]
+        G2[Redis Lua Sliding-Window Rate Limiter]
+        G3[Tenant RLS Context Middleware]
+        G4[Semantic Execution Cache]
     end
 
     subgraph Layer_2__Agent_Orchestration_State
-        L2a[LangGraph DAG State Machine<br/>pointer-only ~2KB checkpoints]:::langgraph
-        L2b[LiteLLM Execution Bus]:::litellm
-        L2c[Alert Stream Worker + DLQ]:::worker
+        L2a[LangGraph DAG State Machine<br/>pointer-only ~2KB checkpoints]
+        L2b[LiteLLM Execution Bus]
+        L2c[Alert Stream Worker + DLQ]
     end
 
     subgraph Layer_3__Hybrid_Retrieval_Persistence
-        L3a[PostgreSQL<br/>pgvector + BM25 tsvector + RLS]:::postgres
-        L3b[Neo4j Knowledge Graph]:::neo4j
-        L3c[MinIO / S3 Storage]:::minio
+        L3a[PostgreSQL<br/>pgvector + BM25 tsvector + RLS]
+        L3b[Neo4j Knowledge Graph]
+        L3c[MinIO / S3 Storage]
     end
 
     subgraph Layer_4__Tool_Mesh
-        M1[FastMCP Server<br/>stratops-intel-mcp]:::mcp
+        M1[FastMCP Server<br/>stratops-intel-mcp]
     end
 
     %% Connections
