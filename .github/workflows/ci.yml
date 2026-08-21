@@ -9,6 +9,7 @@ on:
 jobs:
   lint-and-format:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       
@@ -39,6 +40,7 @@ jobs:
 
   unit-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     services:
       postgres:
         image: pgvector/pgvector:pg16
@@ -76,7 +78,7 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
         run: |
           cd backend
-          pytest tests/unit/ -v --cov=. --cov-report=xml
+          pytest tests/unit/ -v --cov=. --cov-report=xml --timeout=30
           
       - name: Upload coverage
         uses: codecov/codecov-action@v3
@@ -85,6 +87,7 @@ jobs:
 
   integration-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       
@@ -101,10 +104,11 @@ jobs:
       - name: Run integration tests
         run: |
           cd backend
-          pytest tests/integration/ -v
+          pytest tests/integration/ -v --timeout=60
 
   bentoml-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       
@@ -125,6 +129,7 @@ jobs:
 
   frontend-lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       

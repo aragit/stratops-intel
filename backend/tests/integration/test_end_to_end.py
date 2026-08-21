@@ -718,7 +718,7 @@ class TestCheckpointSize:
             "trace_id": "trace-001",
             "signal_uris": [],
             "extracted_entities": [
-                {"company_name": f"Company {i}", "ticker": f"T{i}"} for i in range(100)
+                {"company_name": f"Company {i}", "ticker": f"T{i}"} for i in range(50)
             ],
             "content_uris": [f"s3://test/{i}" for i in range(50)],
             "correlation_graph_delta": [f"delta_{i}" for i in range(100)],

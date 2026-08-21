@@ -9,14 +9,17 @@ on:
 jobs:
   pip-audit:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: pypa/gh-action-pip-audit@v1.0.0
         with:
           inputs: backend/requirements.txt
+          no-deps: true
 
   trufflehog:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
         with:

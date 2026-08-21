@@ -1,50 +1,524 @@
-# Direct runtime dependencies (mirrors pyproject.toml [project.dependencies])
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
-pydantic>=2.9.0
-pydantic-settings>=2.1.0
-pyjwt>=2.8.0
-bcrypt>=4.1.0
-slowapi>=0.1.8
-tenacity>=8.2.0
-redis>=5.0.0
-aiosmtplib>=3.0.0
-aiohttp>=3.9.0
-langgraph>=0.2.0
-langchain-core>=0.3.0
-langchain-openai>=0.2.0
-instructor>=1.5.0
-litellm>=1.48.0
-asyncpg>=0.29.0
-sqlalchemy[asyncio]>=2.0.0
-alembic>=1.13.0
-neo4j>=5.24.0
-aiobotocore>=2.14.0
-beautifulsoup4>=4.12.0
-xmltodict>=0.13.0
-feedparser>=6.0.0
-playwright>=1.40.0
-structlog>=24.1.0
-prometheus-client>=0.20.0
-opentelemetry-api>=1.24.0
-opentelemetry-sdk>=1.24.0
-opentelemetry-instrumentation-fastapi>=0.45b0
-opentelemetry-instrumentation-sqlalchemy>=0.45b0
-httpx>=0.26.0
-networkx>=3.2.0
-cryptography>=42.0.0
-python-multipart>=0.0.9
-
-# Dev/test dependencies (mirrors [project.optional-dependencies].dev)
-pytest>=8.3.0
-pytest-asyncio>=0.24.0
-pytest-cov>=5.0.0
-testcontainers[minio]>=4.8.0
-factory-boy>=3.3.0
-faker>=28.0.0
-ruff>=0.6.0
-mypy>=1.11.0
-pre-commit>=3.6.0
-numpy>=1.24.0
-scikit-learn>=1.3.0
-respx>=0.21.0
+aiobotocore==3.9.0
+    # via stratops-intel-backend (pyproject.toml)
+aiohappyeyeballs==2.7.1
+    # via aiohttp
+aiohttp==3.14.3
+    # via
+    #   aiobotocore
+    #   instructor
+    #   litellm
+    #   stratops-intel-backend (pyproject.toml)
+aioitertools==0.13.0
+    # via aiobotocore
+aiosignal==1.4.0
+    # via aiohttp
+aiosmtplib==5.1.2
+    # via stratops-intel-backend (pyproject.toml)
+alembic==1.19.1
+    # via stratops-intel-backend (pyproject.toml)
+annotated-doc==0.0.5
+    # via
+    #   fastapi
+    #   typer
+annotated-types==0.8.0
+    # via pydantic
+anyio==4.14.2
+    # via
+    #   httpx
+    #   langsmith
+    #   openai
+    #   starlette
+    #   watchfiles
+argon2-cffi==25.1.0
+    # via minio
+argon2-cffi-bindings==26.1.0
+    # via argon2-cffi
+asgiref==3.12.1
+    # via opentelemetry-instrumentation-asgi
+ast-serialize==0.8.0
+    # via mypy
+asyncpg==0.31.0
+    # via stratops-intel-backend (pyproject.toml)
+attrs==26.1.0
+    # via
+    #   aiohttp
+    #   jsonschema
+    #   referencing
+bcrypt==5.0.0
+    # via stratops-intel-backend (pyproject.toml)
+beautifulsoup4==4.15.0
+    # via stratops-intel-backend (pyproject.toml)
+botocore==1.43.56
+    # via aiobotocore
+certifi==2026.7.22
+    # via
+    #   httpcore
+    #   httpx
+    #   langchain-openai
+    #   minio
+    #   requests
+cffi==2.1.1
+    # via
+    #   argon2-cffi-bindings
+    #   cryptography
+cfgv==3.5.0
+    # via pre-commit
+charset-normalizer==3.5.1
+    # via requests
+click==8.4.2
+    # via
+    #   huggingface-hub
+    #   litellm
+    #   uvicorn
+coverage[toml]==7.15.4
+    # via pytest-cov
+cryptography==50.0.0
+    # via stratops-intel-backend (pyproject.toml)
+deprecated==1.3.1
+    # via limits
+distlib==0.4.3
+    # via virtualenv
+distro==1.9.0
+    # via
+    #   langsmith
+    #   openai
+docker==7.2.0
+    # via testcontainers
+docstring-parser==0.18.0
+    # via instructor
+factory-boy==3.3.3
+    # via stratops-intel-backend (pyproject.toml)
+faker==40.37.0
+    # via
+    #   factory-boy
+    #   stratops-intel-backend (pyproject.toml)
+fastapi==0.141.1
+    # via stratops-intel-backend (pyproject.toml)
+fastuuid==0.14.0
+    # via litellm
+feedparser==6.0.14
+    # via stratops-intel-backend (pyproject.toml)
+feedparser-sgmllib==2.1.0
+    # via feedparser
+filelock==3.32.3
+    # via
+    #   huggingface-hub
+    #   python-discovery
+    #   virtualenv
+frozenlist==1.8.0
+    # via
+    #   aiohttp
+    #   aiosignal
+fsspec==2026.7.0
+    # via huggingface-hub
+greenlet==3.5.5
+    # via
+    #   playwright
+    #   sqlalchemy
+h11==0.16.0
+    # via
+    #   httpcore
+    #   uvicorn
+hf-xet==1.6.0
+    # via huggingface-hub
+httpcore==1.0.9
+    # via httpx
+httptools==0.8.0
+    # via uvicorn
+httpx==0.28.1
+    # via
+    #   huggingface-hub
+    #   langchain-core
+    #   langgraph-sdk
+    #   langsmith
+    #   litellm
+    #   openai
+    #   respx
+    #   stratops-intel-backend (pyproject.toml)
+huggingface-hub==1.28.0
+    # via tokenizers
+identify==2.6.19
+    # via pre-commit
+idna==3.19
+    # via
+    #   anyio
+    #   httpx
+    #   requests
+    #   yarl
+importlib-metadata==8.9.0
+    # via litellm
+iniconfig==2.3.0
+    # via pytest
+instructor==1.15.4
+    # via stratops-intel-backend (pyproject.toml)
+jinja2==3.1.6
+    # via
+    #   instructor
+    #   litellm
+jiter==0.14.0
+    # via
+    #   instructor
+    #   openai
+jmespath==1.1.0
+    # via
+    #   aiobotocore
+    #   botocore
+joblib==1.5.3
+    # via scikit-learn
+jsonpatch==1.33
+    # via langchain-core
+jsonpointer==3.1.1
+    # via jsonpatch
+jsonschema==4.26.0
+    # via litellm
+jsonschema-specifications==2025.9.1
+    # via jsonschema
+langchain-core==1.6.0
+    # via
+    #   langchain-openai
+    #   langgraph
+    #   langgraph-checkpoint
+    #   langgraph-prebuilt
+    #   langgraph-sdk
+    #   stratops-intel-backend (pyproject.toml)
+langchain-openai==1.6.0
+    # via stratops-intel-backend (pyproject.toml)
+langchain-protocol==0.0.18
+    # via
+    #   langchain-core
+    #   langgraph-sdk
+langgraph==1.2.11
+    # via stratops-intel-backend (pyproject.toml)
+langgraph-checkpoint==4.2.0
+    # via
+    #   langgraph
+    #   langgraph-prebuilt
+langgraph-prebuilt==1.1.0
+    # via langgraph
+langgraph-sdk==0.4.3
+    # via langgraph
+langsmith==0.11.1
+    # via langchain-core
+librt==0.15.0
+    # via mypy
+limits==5.8.0
+    # via slowapi
+litellm==1.97.0
+    # via stratops-intel-backend (pyproject.toml)
+mako==1.4.1
+    # via alembic
+markdown-it-py==4.2.0
+    # via rich
+markupsafe==3.0.3
+    # via
+    #   jinja2
+    #   mako
+mdurl==0.1.2
+    # via markdown-it-py
+minio==7.2.20
+    # via testcontainers
+multidict==6.7.1
+    # via
+    #   aiobotocore
+    #   aiohttp
+    #   yarl
+mypy==2.3.1
+    # via stratops-intel-backend (pyproject.toml)
+mypy-extensions==1.1.0
+    # via mypy
+narwhals==2.25.0
+    # via scikit-learn
+neo4j==6.2.0
+    # via stratops-intel-backend (pyproject.toml)
+networkx==3.6.1
+    # via stratops-intel-backend (pyproject.toml)
+nodeenv==1.10.0
+    # via pre-commit
+numpy==2.5.2
+    # via
+    #   scikit-learn
+    #   scipy
+    #   stratops-intel-backend (pyproject.toml)
+openai==2.54.0
+    # via
+    #   instructor
+    #   langchain-openai
+    #   litellm
+opentelemetry-api==1.44.0
+    # via
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-instrumentation-sqlalchemy
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
+    #   stratops-intel-backend (pyproject.toml)
+opentelemetry-instrumentation==0.65b0
+    # via
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-instrumentation-sqlalchemy
+opentelemetry-instrumentation-asgi==0.65b0
+    # via opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-fastapi==0.65b0
+    # via stratops-intel-backend (pyproject.toml)
+opentelemetry-instrumentation-sqlalchemy==0.65b0
+    # via stratops-intel-backend (pyproject.toml)
+opentelemetry-sdk==1.44.0
+    # via stratops-intel-backend (pyproject.toml)
+opentelemetry-semantic-conventions==0.65b0
+    # via
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-instrumentation-sqlalchemy
+    #   opentelemetry-sdk
+opentelemetry-util-http==0.65b0
+    # via
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
+orjson==3.12.0
+    # via
+    #   langgraph-sdk
+    #   langsmith
+ormsgpack==1.12.2
+    # via langgraph-checkpoint
+packaging==26.3
+    # via
+    #   huggingface-hub
+    #   langchain-core
+    #   langsmith
+    #   limits
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-sqlalchemy
+    #   pytest
+pathspec==1.1.1
+    # via mypy
+platformdirs==4.11.3
+    # via virtualenv
+playwright==1.62.0
+    # via stratops-intel-backend (pyproject.toml)
+pluggy==1.6.0
+    # via
+    #   pytest
+    #   pytest-cov
+pre-commit==4.6.2
+    # via stratops-intel-backend (pyproject.toml)
+prometheus-client==0.26.0
+    # via stratops-intel-backend (pyproject.toml)
+propcache==0.5.2
+    # via
+    #   aiohttp
+    #   yarl
+pycparser==3.0
+    # via cffi
+pycryptodome==3.23.0
+    # via minio
+pydantic==2.13.4
+    # via
+    #   fastapi
+    #   instructor
+    #   langchain-core
+    #   langgraph
+    #   langsmith
+    #   litellm
+    #   openai
+    #   pydantic-settings
+    #   stratops-intel-backend (pyproject.toml)
+pydantic-core==2.46.4
+    # via
+    #   instructor
+    #   pydantic
+pydantic-settings==2.15.0
+    # via
+    #   litellm
+    #   stratops-intel-backend (pyproject.toml)
+pyee==13.0.1
+    # via playwright
+pygments==2.21.0
+    # via
+    #   pytest
+    #   rich
+pyjwt==2.13.0
+    # via stratops-intel-backend (pyproject.toml)
+pytest==9.1.1
+    # via
+    #   pytest-asyncio
+    #   pytest-cov
+    #   stratops-intel-backend (pyproject.toml)
+pytest-asyncio==1.4.0
+    # via stratops-intel-backend (pyproject.toml)
+pytest-cov==7.1.0
+    # via stratops-intel-backend (pyproject.toml)
+python-dateutil==2.9.0.post0
+    # via
+    #   aiobotocore
+    #   botocore
+python-discovery==1.5.2
+    # via virtualenv
+python-dotenv==1.2.3
+    # via
+    #   litellm
+    #   pydantic-settings
+    #   testcontainers
+    #   uvicorn
+python-multipart==0.0.32
+    # via stratops-intel-backend (pyproject.toml)
+pytz==2026.3.post1
+    # via neo4j
+pyyaml==6.0.3
+    # via
+    #   huggingface-hub
+    #   langchain-core
+    #   pre-commit
+    #   uvicorn
+redis==8.1.0
+    # via stratops-intel-backend (pyproject.toml)
+referencing==0.37.0
+    # via
+    #   jsonschema
+    #   jsonschema-specifications
+regex==2026.7.19
+    # via tiktoken
+requests==2.34.2
+    # via
+    #   docker
+    #   instructor
+    #   langsmith
+    #   requests-toolbelt
+    #   tiktoken
+requests-toolbelt==1.0.0
+    # via langsmith
+respx==0.23.1
+    # via stratops-intel-backend (pyproject.toml)
+rich==14.3.4
+    # via
+    #   instructor
+    #   typer
+rpds-py==2026.6.3
+    # via
+    #   jsonschema
+    #   referencing
+ruff==0.16.4
+    # via stratops-intel-backend (pyproject.toml)
+scikit-learn==1.9.0
+    # via stratops-intel-backend (pyproject.toml)
+scipy==1.18.0
+    # via scikit-learn
+shellingham==1.5.4
+    # via typer
+six==1.17.0
+    # via python-dateutil
+slowapi==0.1.10
+    # via stratops-intel-backend (pyproject.toml)
+sniffio==1.3.1
+    # via
+    #   langsmith
+    #   openai
+soupsieve==2.9.2
+    # via beautifulsoup4
+sqlalchemy[asyncio]==2.0.52
+    # via
+    #   alembic
+    #   stratops-intel-backend (pyproject.toml)
+starlette==1.6.0
+    # via fastapi
+structlog==26.1.0
+    # via stratops-intel-backend (pyproject.toml)
+tenacity==9.1.4
+    # via
+    #   instructor
+    #   langchain-core
+    #   stratops-intel-backend (pyproject.toml)
+testcontainers[minio]==4.15.0
+    # via stratops-intel-backend (pyproject.toml)
+threadpoolctl==3.6.0
+    # via scikit-learn
+tiktoken==0.14.0
+    # via
+    #   langchain-openai
+    #   litellm
+tokenizers==0.23.1
+    # via litellm
+tqdm==4.70.0
+    # via
+    #   huggingface-hub
+    #   openai
+typer==0.27.1
+    # via instructor
+typing-extensions==4.16.0
+    # via
+    #   aiohttp
+    #   aiosignal
+    #   alembic
+    #   anyio
+    #   beautifulsoup4
+    #   fastapi
+    #   huggingface-hub
+    #   langchain-core
+    #   langchain-protocol
+    #   langsmith
+    #   limits
+    #   minio
+    #   mypy
+    #   openai
+    #   opentelemetry-api
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
+    #   pydantic
+    #   pydantic-core
+    #   pyee
+    #   pytest-asyncio
+    #   referencing
+    #   sqlalchemy
+    #   starlette
+    #   testcontainers
+    #   typing-inspection
+typing-inspection==0.4.4
+    # via
+    #   fastapi
+    #   pydantic
+    #   pydantic-settings
+urllib3==2.7.0
+    # via
+    #   botocore
+    #   docker
+    #   minio
+    #   requests
+    #   testcontainers
+uuid-utils==0.17.0
+    # via
+    #   langchain-core
+    #   langsmith
+uvicorn[standard]==0.52.4
+    # via stratops-intel-backend (pyproject.toml)
+uvloop==0.22.1
+    # via uvicorn
+virtualenv==21.7.4
+    # via pre-commit
+watchfiles==1.2.0
+    # via uvicorn
+websockets==16.1.1
+    # via
+    #   langgraph-sdk
+    #   langsmith
+    #   uvicorn
+wrapt==2.3.0
+    # via
+    #   aiobotocore
+    #   deprecated
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-sqlalchemy
+    #   testcontainers
+xmltodict==1.0.4
+    # via stratops-intel-backend (pyproject.toml)
+xxhash==4.0.1
+    # via
+    #   langgraph
+    #   langsmith
+yarl==1.24.5
+    # via aiohttp
+zipp==4.1.0
+    # via importlib-metadata
+zstandard==0.25.0
+    # via langsmith
