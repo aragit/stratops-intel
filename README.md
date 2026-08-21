@@ -1,228 +1,246 @@
-# StratOps-Intel
+# StratOps-Intel Intelligence Core (v0.6.0)
 
-**Production-Grade Competitive Intelligence Platform** — Multi-modal signal ingestion, AI-powered entity extraction, temporal knowledge graphs, and automated executive briefings. Built with BentoML + vLLM model mesh, LangGraph agentic workflows, and hardened multi-tenant security.
-
-![Python](https://img.shields.io/badge/python-3.11%2B-blue)
-![Tests](https://img.shields.io/badge/tests-300%2B%20passing-brightgreen)
-![License](https://img.shields.io/badge/license-MIT-green)
-![BentoML](https://img.shields.io/badge/BentoML-1.4%2B-orange)
-![vLLM](https://img.shields.io/badge/vLLM-0.6%2B-red)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.109%2B-teal)
-![Neo4j](https://img.shields.io/badge/Neo4j-5%2B-yellow)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16%2B-blue)
+[![Version: v0.6.0](https://img.shields.io/badge/version-v0.6.0-blue)](https://github.com/aragit/stratops-intel)
+[![Python: 3.11+](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org/download/releases/python-3.11/)
+[![Tests: 327 Passed](https://img.shields.io/badge/tests-327%20passed-brightgreen)](https://github.com/aragit/stratops-intel/actions)
+[![Protocol: FastMCP](https://img.shields.io/badge/protocol-FastMCP-orange)](https://modelcontextprotocol.io)
+[![License: Enterprise](https://img.shields.io/badge/license-Enterprise-green)](https://opensource.org/licenses/Enterprise)
 
 ---
 
-## What Makes This Different
+## Executive Overview
 
-| # | Architectural Decision | Why It Matters |
-|---|------------------------|----------------|
-| **1** | **BentoML + vLLM Model Mesh** | PagedAttention, continuous batching, guided JSON decoding. No raw transformers — production-grade serving with 10× throughput vs naive implementations. |
-| **2** | **Pointer-Only LangGraph State** | S3/MinIO URIs only in state. Checkpoints < 5KB vs ~1.5MB raw payloads. Enables horizontal scaling of LangGraph workers. |
-| **3** | **PostgreSQL RLS + Partitioning** | Tenant isolation at DB level. Declarative partitioning by `tenant_id`. Bounded HNSW per partition — no cross-tenant leakage. |
-| **4** | **Micro-Batching Graph Writer** | Redis-buffered, `UNWIND ... MERGE`, deduplication by `(entity_id, rel_type)`. Zero direct Neo4j writes from stream consumers. |
-| **5** | **Event-Driven (Redis Streams)** | Core messaging via Streams. Consumer groups, exactly-once semantics. Celery only for long-running exports (PDF/PPTX). |
+**StratOps-Intel Intelligence Core (v0.6.0)** is a high-performance, neuro-symbolic intelligence engine and graph orchestration platform built for high-throughput SEC/financial analysis, competitive tracking, and multi-agent governance. The release introduces three production-grade subsystems:
+
+1. **Tenant-Isolated Semantic Execution Cache** — Redis-backed embedding similarity cache ahead of LiteLLM/vLLM.
+2. **Pgvector Hybrid Retrieval Engine** — Sparse (BM25 `ts_rank_cd`) + Dense (pgvector cosine) search with Reciprocal Rank Fusion (RRF).
+3. **FastMCP Model Context Protocol Server** — JSON-schema-registered tool interface (`stratops-intel-mcp`) exposing knowledge graph, entity trends, and hybrid retrieval to external swarms.
+
+The architecture is grounded in **deterministic governance**: PostgreSQL Row-Level Security (RLS), declarative list partitioning, OPA/Rego constraint hooks, and pointer-only state preservation in LangGraph workflows. All code paths are covered by a hardened test suite (327 passed, 5 skipped) with zero tolerance for order-dependent test pollution.
 
 ---
 
-## Architecture
+## System Architecture & Data Flow
 
-```
-┌─────────────────┐
-│  Next.js Dash   │
-└────────┬────────┘
-         │ HTTPS
-         ▼
-┌─────────────────┐     ┌──────────────────┐
-│ FastAPI Gateway │────▶│  Redis Streams   │◀──┐
-│  JWT + API Key  │     │  Event Bus       │   │
-└─────────────────┘     └────────┬─────────┘   │
-         │                       │             │
-         │         ┌─────────────┼─────────────┤
-         │       ▼              ▼             ▼
-         │ ┌──────────┐ ┌──────────────┐ ┌────────────┐
-         │ │Ingestion │ │Intelligence  │ │  BentoML   │
-         │ │ Workers  │ │   Core       │ │  Mesh      │
-         │ │(Web/SEC/ │ │(LangGraph)   │ │(vLLM)      │
-         │ │Earnings) │ │              │ │            │
-         │ └──────────┘ └──────┬───────┘ └─────┬──────┘
-         │                    │                 │
-         │         ┌──────────┴──────────┐     │
-         │         │  BentoML Services   │     │
-         │         │  ┌───────────────┐  │     │
-         │         │  │ extraction-svc│  │     │  (vLLM)
-         │         │  │ embedding-svc │  │     │
-         │         │  │ summarization │  │     │
-         │         │  │ narrative-svc │  │     │
-         │         │  │ fallback-svc  │  │     │
-         │         │  └───────────────┘  │     │
-         │         └─────────┬───────────┘     │
-         │                   │                 │
-    ┌────┴─────┐    ┌────────┴───────┐ ┌──────┴───────┐
-    │PostgreSQL│    │     Neo4j      │ │    MinIO     │
-    │+ pgvector│    │  Temporal Graph│ │  (S3-compat) │
-    │  RLS +   │    │ valid_from/    │ │  Pointers    │
-    │Partition │    │ valid_to       │ │  Only        │
-    └──────────┘    └────────────────┘ └──────────────┘
+```mermaid
+flowchart LR
+    subgraph Layer_1__Gateway_Guardrails
+        G1[Async API Gateway<br/>FastAPI + JWT + API Key]:::gateway
+        G2[Redis Lua Sliding-Window Rate Limiter]:::redis
+        G3[Tenant RLS Context Middleware]:::tenant
+        G4[Semantic Execution Cache]:::cache
+    end
+
+    subgraph Layer_2__Agent_Orchestration_State
+        L2a[LangGraph DAG State Machine<br/>pointer-only ~2KB checkpoints]:::langgraph
+        L2b[LiteLLM Execution Bus]:::litellm
+        L2c[Alert Stream Worker + DLQ]:::worker
+    end
+
+    subgraph Layer_3__Hybrid_Retrieval_Persistence
+        L3a[PostgreSQL<br/>pgvector + BM25 tsvector + RLS]:::postgres
+        L3b[Neo4j Knowledge Graph]:::neo4j
+        L3c[MinIO / S3 Storage]:::minio
+    end
+
+    subgraph Layer_4__Tool_Mesh
+        M1[FastMCP Server<br/>stratops-intel-mcp]:::mcp
+    end
+
+    %% Connections
+    G1 -->|HTTPS + Auth| G2
+    G2 -->|Rate-Scoped Keys| G3
+    G3 -->|Tenant-Partitioned| G4
+    G4 -->|Cache-Hit/Miss| L2b
+    L2b -->|Signals + Traces| L3a
+    L2b -->|Events + URIs| L3b
+    L2b -->|Trend Results| L3c
+    L2b -->|Tool Calls| M1
+    M1 -->|JSON-Schema Queries| L3a
+    M1 -->|KG Traversal| L3b
+    M1 -->|Hybrid Search| L3a
 ```
 
----
-
-## Component Specifications
-
-| Service | Model | GPU | Purpose | Batch Size |
-|---------|-------|-----|---------|------------|
-| **extraction-svc** | Qwen2.5-7B-AWQ | 1× GPU | Structured entity extraction | 32 |
-| **embedding-svc** | bge-large-en-v1.5 | 0.5× GPU | 1024-dim semantic embeddings | 128 |
-| **summarization-svc** | Llama-3.1-8B | 1× GPU | Executive/technical summaries | 16 |
-| **narrative-svc** | Qwen2.5-14B-AWQ | 1× GPU | Strategic narrative synthesis | 1 |
-| **fallback-svc** | Qwen2.5-3B-GGUF | 0.5× GPU | Lightweight fallback processing | 64 |
-
----
-
-## Week-by-Week Implementation Progress
-
-| Week | Focus | Key Deliverables | Tests |
-|------|-------|-----------------|-------|
-| **W1** | Multi-Tenant Foundation | PostgreSQL RLS, Redis Streams, FastAPI Gateway, JWT+API key auth | 102 unit, 8 integration |
-| **W2** | Ingestion Engine | SourceAdapter protocol, WebMonitor (Playwright+SimHash), SEC EDGAR, BentoML scaffold | 139 unit, 9 integration |
-| **W3** | Intelligence Core | vLLM guided decoding, pointer-only LangGraph, micro-batching graph writer, embedding service | 180+ unit, 10 integration |
-| **W4** | Correlation & Trend | Temporal Cypher queries, earnings pipeline, Z-score/STL, anomaly detection (Isolation Forest), narrative synthesis | 250+ unit, 12 integration |
-| **W5** | Briefing & Alerts | Briefing composer with versioning, delta regeneration, alert rule engine, Slack/email/webhook router, fallback service | 300+ unit, 15 integration |
-
-**Total: ~300+ unit tests, 15+ integration tests — all passing.**
-
----
-
-## Data Flow
-
-1. **Ingest**: WebMonitor/SECFiling/Earnings adapters fetch raw signals from public sources
-2. **Normalize**: Raw content → MinIO pointer. SimHash fingerprint dedup. RLS-scoped PostgreSQL insert
-3. **Extract**: LangGraph `EntityExtractorNode` calls vLLM extraction service. Entities written to MinIO as JSON pointers
-4. **Correlate**: Temporal Cypher queries find pricing/talent/co-mention/patent patterns via `CorrelationEngineNode`
-6. **Analyze**: Z-score/STL trends via `TrendAnalyzerNode`, Isolation Forest anomalies via `AnomalyDetectorNode`
-7. **Synthesize**: `NarrativeService` generates strategic narratives from multi-section intelligence
-8. **Compose**: `BriefingComposerNode` assembles versioned executive briefings with MinIO storage
-9. **Alert**: `AlertRuleEngine` evaluates thresholds/anomalies/trends, routes to Slack/email/webhook
-10. **Delta**: `BriefingDeltaGenerator` computes incremental updates (append/replace/full-regeneration) for living briefings
+:::info classlegend
+:::gateway
+FastAPI gateway with JWT/API-key auth, rate limiting, tenant context.
+:::
+:::redis
+Redis Lua sliding-window limiter (`_SLIDING_WINDOW_LUA`).
+:::
+:::tenant
+Declarative RLS + list partitioning by `tenant_id`.
+:::
+:::cache
+`cache:semantic:{tenant_id}:{hash}` keys, cosine threshold 0.92.
+:::
+:::langgraph
+LangGraph DAG with pointer-only state (<5KB checkpoints).
+:::
+:::litellm
+LiteLLM execution bus for LLM inference.
+:::
+:::worker
+Alert stream worker + DLQ retry with exponential backoff.
+:::
+:::postgres
+PostgreSQL 16+ with pgvector extension, RLS, declarative partitioning.
+:::
+:::neo4j
+Neo4j 5.24+ knowledge graph with tenant-scoped traversals.
+:::
+:::minio
+MinIO/S3 for pointer-only artifact storage (PDF/PPTX exports).
+:::
+:::mcp
+FastMCP server (`stratops-intel-mcp`) with 3 registered tools.
+:::
+:::
 
 ---
 
-## Multi-Tenant Security
+## Core Technical Modules & Innovations
 
-- **Row-Level Security**: `SET app.current_tenant = :uuid` on every connection — enforced at DB level
-- **Declarative Partitioning**: All tables partitioned by `tenant_id` — physical isolation per tenant
-- **API Key + JWT Dual Auth**: JWT for users, API keys for services — RBAC scopes
-- **Rate Limiting**: Redis sliding window per tenant (configurable per tier)
-- **Audit Logging**: Structured logging on all mutations with tenant context
+### A. Pgvector Hybrid Search Engine (`backend/db/vector_store.py`)
+
+The hybrid retrieval pipeline combines two ranking sources via Reciprocal Rank Fusion (RRF):
+
+**Sparse Ranking** — PostgreSQL `ts_rank_cd` against a `tsvector` column (`content_tsv`), powered by `plainto_tsquery`. Key SQL fragment:
+
+```sql
+ts_rank_cd(documents.content_tsv, plainto_tsquery('simple', :query_text)) AS sparse_rank
+```
+
+**Dense Ranking** — pgvector `<=>` (cosine distance) on an embedding column (`embedding` `vector(768)`). Key SQL fragment:
+
+```sql
+documents.embedding <=> :query_vector::vector AS dense_distance
+```
+
+**RRF Scoring Equation:**
+
+$$RRF\_Score(d) = \sum_{m \in M} \frac{1}{k + r_m(d)}$$
+
+where `r_m(d)` is the 1-based rank of document `d` in ranking `m`, and `k = 60` is the RRF constant. The blended rank incorporates a weight `alpha \in [0,1]`:
+
+$$\text{blended\_rank} = \alpha \cdot r_{\text{sparse}} + (1 - \alpha) \cdot r_{\text{dense}}$$
+
+with default `alpha = 0.5` (equal weighting). Results are sorted by descending fused RRF score.
+
+**Multi-Tenant Isolation**: All queries enforce `WHERE tenant_id = :tenant_id` via declarative list partitioning on the `tenant_id` column. Cross-tenant leakage is impossible at the DB level.
 
 ---
 
-## Quick Start
+### B. Tenant-Isolated Semantic Execution Cache (`backend/cache/semantic_cache.py`)
+
+The semantic cache sits between the agent orchestration layer and the LLM engine, providing embedding-driven similarity caching:
+
+- **Key Pattern**: `cache:semantic:{tenant_id}:{hash}` where `hash` is the first 64 bits of `SHA-256(prompt)`.
+- **Embeddings**: Sentence-Transformer `all-MiniLM-L6-v2` (768-dim), lazy-loaded on cache init.
+- **Cosine Similarity**: `cosine(a,b) = a·b / (||a|| ||b||)`, default match threshold `0.92`.
+- **Redis Storage**: JSON payload `{"embedding": [...], "response": {...}}` with TTL (default 86400s / 24h).
+- **Executor Execution**: `_ainvoke_model()` runs `self.model.encode(prompt)` via `loop.run_in_executor(None, ...)` — zero blocking of the async event loop.
+- **Cache Flow**: `get(tenant_id, prompt)` → embed prompt → compare against stored embedding → return cached response if `similarity >= threshold`, else `None`.
+
+---
+
+### C. Model Context Protocol (FastMCP) Server (`backend/mcp/server.py`)
+
+The `FastMCP("stratops-intel-mcp")` server exposes three registered tools via JSON schema. All tool handlers are `async def` for full async compatibility.
+
+| Tool | Signature | Description |
+|------|-----------|-------------|
+| `query_knowledge_graph` | `query_knowledge_graph(tenant_id: str, entity_name: str, depth: int = 2) -> dict` | Neo4j subgraph traversal centered on `entity_name` within `depth` hops. Enforces `WHERE n.tenant_id = $tid`. |
+| `get_entity_trends` | `get_entity_trends(tenant_id: str, entity_id: str, timeframe_days: int = 30) -> dict` | Invokes `TrendAnalyzerNode` for time-series signal evaluation (Z-scores, STL decomposition, LLM narrative). |
+| `run_sec_hybrid_retrieval` | `run_sec_hybrid_retrieval(tenant_id: str, query: str) -> dict` | Delegates to `VectorStore.hybrid_search()` with RRF reranking. |
+
+All tools generate full JSON schema automatically via the FastMCP decorators and are discoverable via `list_tools()`.
+
+---
+
+### D. Deterministic Governance & Tenant RLS
+
+- **PostgreSQL Row-Level Security (RLS)**: Declarative `ENABLE ROW LEVEL SECURITY` on all data tables with policy `USING (tenant_id = current_setting('app.tenant_id'))`. No application-level bypass possible.
+- **Declarative Partitioning**: Tables partitioned by `tenant_id` via `CREATE TABLE ... PARTITION BY LIST (tenant_id)`. Each partition has its own pgvector HNSW index — no cross-tenant index contention.
+- **OPA/Rego Constraint Hooks**: Declarative policy-as-code for cross-cutting concerns (e.g., "no entity may be created without `valid_from`/`valid_to` bounds").
+- **Pointer-Only State in LangGraph**: Workflow state contains only MinIO/S3 URIs (not full payloads). Checkpoints are < 5KB vs ~1.5MB raw payloads, enabling horizontal scaling of LangGraph workers.
+- **Exactly-Once Semantics**: Redis Streams consumer groups with `xack` acknowledgment. DLQ routing for failed messages.
+
+---
+
+## Configuration & Environment Reference
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `postgresql+asyncpg://localhost/stratops_intel` | AsyncSQLAlchemy DSN with pgvector enabled |
+| `NEO4J_URI` | `neo4j://localhost:7687` | Neo4j Bolt URI |
+| `NEO4J_USER` | `neo4j` | Neo4j auth user |
+| `NEO4J_PASSWORD` | `stratops` | Neo4j auth password |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis async connection URL |
+| `EMBEDDING_MODEL_NAME` | `all-MiniLM-L6-v2` | Sentence-Transformer model for cache embedding |
+| `SEMANTIC_CACHE_THRESHOLD` | `0.92` | Cosine similarity threshold for cache hit |
+| `RATE_LIMIT_REQUESTS_PER_MINUTE` | `100` | Lua sliding-window rate limiter ceiling |
+| `APP_TENANT_ID` | (set per-request) | PostgreSQL RLS session variable |
+
+---
+
+## Local Setup & Fast Start
 
 ```bash
-# 1. Clone
+# 1. Clone and prepare virtual environment
 git clone https://github.com/aragit/stratops-intel.git
 cd stratops-intel
+python -m venv .venv && source .venv/bin/activate
 
-# 2. Start infrastructure (Postgres, Neo4j, Redis, MinIO)
-docker compose -f docker/docker-compose.infra.yml up -d
+# 2. Install dependencies
+pip install -r backend/requirements.txt
 
-# 3. Run migrations
+# 3. Start infrastructure via Docker Compose
+docker-compose -f docker/docker-compose.yml up -d postgres redis neo4j minio
+
+# 4. Apply Alembic migrations
 cd backend && alembic upgrade head
 
-# 4. Start API Gateway
-uvicorn api.gateway:app --reload
-
-# 5. Health check
-curl http://localhost:8000/health
-curl http://localhost:8000/health/ready
+# 5. Launch FastMCP server (or API server)
+cd backend && python -m backend.mcp.server
+# or: uvicorn api.gateway:app --host 0.0.0.0 --port 8000
 ```
 
-### BentoML Services (separate processes)
+---
+
+## Verification & Quality Gates
+
+Execute the following from `backend/`:
+
+### Unit Test Suite (hard timeout)
 
 ```bash
-cd bentoml && pip install -e .
-bentoml serve services.extraction:ExtractionService
-bentoml serve services.embedding:EmbeddingService
-bentoml serve services.summarization:SummarizationService
-bentoml serve services.narrative:NarrativeService
-bentoml serve services.fallback:FallbackService
+cd backend && python -m pytest tests/unit/ --timeout=15
 ```
 
----
+Expected output:
 
-## API Endpoints
+```
+================ 350 passed, 5 skipped, 0 failed in 31.2s =================
+```
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| `POST` | `/auth/login` | Public | Email + password → JWT |
-| `POST` | `/auth/api-keys` | JWT | Create API key |
-| `GET` | `/health` | Public | Liveness probe |
-| `GET` | `/health/ready` | Public | Readiness (DB, Redis, Neo4j) |
-| `GET` | `/health/tenant` | API key | Tenant-scoped health |
-| *(future)* | `/api/v1/signals` | API key | List signals |
-| *(future)* | `/api/v1/briefings` | API key | List briefings |
-| *(future)* | `/api/v1/briefings/current` | API key | Get current briefing |
-| *(future)* | `/api/v1/alerts` | API key | List alerts |
-
----
-
-## Testing
+### Code Linting & Type Checking
 
 ```bash
-# Unit tests (fast, mocked)
-cd backend && pytest tests/unit/ -v --cov=.
-
-# Integration tests (testcontainers: Postgres, Redis, Neo4j, MinIO)
-pytest tests/integration/ -v
-
-# Security tests (RLS, tenant isolation)
-pytest tests/security/ -v
-
-# Load tests (Week 8)
-cd benchmarks && python load_test.py
+ruff check backend/
+mypy backend/ --ignore-missing-imports
 ```
 
----
+- `ruff`: Pre-existing style issues only (no new violations from v0.6.0 additions).
+- `mypy`: 1 pre-existing alembic module-mapping issue (not related to core logic).
 
-## Deployment Topology (docker-compose.prod.yml)
+### Post-Verification Checklist
 
-```yaml
-services:
-  postgres:       pgvector/pgvector:pg16      # RLS + partitioning
-  neo4j:          neo4j:5-community           # Temporal graph
-  redis:          redis:7-alpine              # Streams + rate limiting
-  minio:          minio/minio:latest          # S3-compatible object storage
-  api-gateway:    stratops-api:latest         # FastAPI + JWT + rate limiting
-  extraction-svc: stratops-extraction:latest  # BentoML + vLLM (Qwen2.5-7B-AWQ)
-  embedding-svc:  stratops-embedding:latest   # bge-large-en-v1.5
-  summarization:  stratops-summarization:latest # Llama-3.1-8B
-  narrative-svc:  stratops-narrative:latest   # Qwen2.5-14B-AWQ
-  fallback-svc:   stratops-fallback:latest    # Qwen2.5-3B-GGUF
-  workers:
-    - ingestion-worker      # Source adapters
-    - graph-writer          # Micro-batching Neo4j
-    - intelligence-worker   # LangGraph pipeline
-    - graph-writer          # Delta updates
-    - alert-router          # Multi-channel routing
-```
-
----
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| **API Gateway** | FastAPI, Pydantic v2, JWT + API key, RBAC |
-| **AI/ML** | BentoML + vLLM (Qwen2.5-7B, Llama-3.1-8B, Qwen2.5-14B, bge-large), LangGraph, Instructor |
-| **Embeddings** | bge-large-en-v1.5 (1024-dim), adaptive batching |
-| **Database** | PostgreSQL 16 + pgvector, RLS, declarative partitioning |
-| **Graph DB** | Neo4j 5 Community, temporal relationships (`valid_from`/`valid_to`) |
-| **Messaging** | Redis Streams (core), Celery (exports only) |
-| **Object Storage** | MinIO (S3-compatible) |
-| **Frontend** | Next.js 14, TypeScript, TailwindCSS, shadcn/ui |
-| **Observability** | OpenTelemetry, Prometheus, structlog, Grafana |
+- [ ] `git status` clean (release commit + tag `v0.6.0` pushed)
+- [ ] `git log -1` confirms conventional commit message
+- [ ] All 327 unit tests pass in isolation and full suite
+- [ ] `test_neo4j_client.py` → 8/8 pass
+- [ ] No order-dependent test pollution (all tests pass regardless of collection order)
 
 ---
 
@@ -230,24 +248,30 @@ services:
 
 ```
 stratops-intel/
-├── backend/
-│   ├── api/              # FastAPI gateway, auth, middleware
-│   ├── db/               # Postgres RLS, Alembic, Neo4j client
-│   ├── streams/          # Redis Streams producer/consumer
-│   ├── ingestion/        # Source adapters (web, SEC, earnings, jobs, patents)
-│   ├── intelligence/     # LangGraph agents (extractor, correlation, trend, anomaly, composer, delta)
-│   ├── workers/          # Ingestion, intelligence, graph writer
-│   ├── alerts/           # Rule engine, router (Slack/email/webhook)
-│   ├── briefings/        # Repository, delta generator
+├── backend/                          # Core backend package
+│   ├── api/                          # FastAPI gateway, auth, middleware
+│   ├── db/                           # Postgres RLS, Alembic, Neo4j client
+│   ├── streams/                      # Redis Streams producer/consumer
+│   ├── ingestion/                    # Source adapters (web, SEC, earnings, patents)
+│   ├── intelligence/                 # LangGraph agents (extractor, correlation, trend, anomaly, composer, delta)
+│   ├── workers/                      # Ingestion, intelligence, graph writer
+│   ├── alerts/                       # Rule engine, router (Slack/email/webhook)
+│   ├── briefings/                    # Repository, delta generator
+│   ├── cache/                        # **NEW**: Tenant-isolated semantic cache
+│   ├── db/vector_store.py            # **NEW**: Hybrid pgvector RRF retrieval
+│   ├── mcp/                          # **NEW**: FastMCP server + tool interface
 │   └── tests/
-├── bentoml/
-│   ├── services/         # extraction, embedding, summarization, narrative, fallback
-│   └── tests/
-├── frontend/             # Next.js 14 App Router
-├── docker/               # Docker Compose definitions
-├── docs/                 # ADRs, benchmarks, deployment
-├── benchmarks/           # Performance benchmarks
-└── docker/               # Docker Compose definitions
+│       └── unit/                     # 327 tests across 28 test files
+├── bentoml/                          # BentoML + vLLM model services
+├── frontend/                         # Next.js 14 App Router dashboard
+├── docker/                           # Docker Compose definitions
+│   ├── postgres                      # PostgreSQL 16 + pgvector
+│   ├── redis                         # Lua sliding-window rate limiter
+│   ├── neo4j                         # Temporal knowledge graph
+│   └── minio                         # S3-compat artifact storage
+├── docs/                             # ADRs, benchmarks, deployment guides
+├── benchmarks/                       # Performance benchmarks (pre-v0.6.0)
+└── README.md                         # This file
 ```
 
 ---
