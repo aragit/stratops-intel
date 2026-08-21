@@ -61,41 +61,28 @@ flowchart LR
     M1 -->|Hybrid Search| L3a
 ```
 
-:::info classlegend
-:::gateway
+**Gateway:** 
 FastAPI gateway with JWT/API-key auth, rate limiting, tenant context.
-:::
-:::redis
+**Redis:** 
 Redis Lua sliding-window limiter (`_SLIDING_WINDOW_LUA`).
-:::
-:::tenant
+**Tenant RLS:** 
 Declarative RLS + list partitioning by `tenant_id`.
-:::
-:::cache
+**Semantic Cache:** 
 `cache:semantic:{tenant_id}:{hash}` keys, cosine threshold 0.92.
-:::
-:::langgraph
+**LangGraph:** 
 LangGraph DAG with pointer-only state (<5KB checkpoints).
-:::
-:::litellm
+**LiteLLM:** 
 LiteLLM execution bus for LLM inference.
-:::
-:::worker
+**Worker:** 
 Alert stream worker + DLQ retry with exponential backoff.
-:::
-:::postgres
+**PostgreSQL:** 
 PostgreSQL 16+ with pgvector extension, RLS, declarative partitioning.
-:::
-:::neo4j
+**Neo4j:** 
 Neo4j 5.24+ knowledge graph with tenant-scoped traversals.
-:::
-:::minio
+**MinIO:** 
 MinIO/S3 for pointer-only artifact storage (PDF/PPTX exports).
-:::
-:::mcp
+**MCP:** 
 FastMCP server (`stratops-intel-mcp`) with 3 registered tools.
-:::
-:::
 
 ---
 
