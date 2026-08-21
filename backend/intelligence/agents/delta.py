@@ -39,8 +39,12 @@ class BriefingDelta(BaseModel):
     briefing_id: str = Field(..., description="Briefing identifier")
     tenant_id: str = Field(..., description="Tenant identifier")
     delta_type: str = Field(..., description="Type: append, replace_section, full_regeneration")
-    sections_added: list[dict[str, Any]] = Field(default_factory=list, description="New sections to add")
-    sections_updated: list[dict[str, Any]] = Field(default_factory=list, description="Existing sections to update")
+    sections_added: list[dict[str, Any]] = Field(
+        default_factory=list, description="New sections to add"
+    )
+    sections_updated: list[dict[str, Any]] = Field(
+        default_factory=list, description="Existing sections to update"
+    )
     sections_removed: list[str] = Field(default_factory=list, description="Section titles removed")
     summary: str = Field(..., description="LLM-generated summary of changes")
     generated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -104,7 +108,7 @@ class BriefingDeltaGenerator:
             BriefingDelta if changes detected, None if no changes
         """
         start_time = time.time()
-        tenant_id = current_briefing.tenant_id
+        _tenant_id = current_briefing.tenant_id
         briefing_id = current_briefing.id
 
         logger = structlog.get_logger().bind(
@@ -115,7 +119,7 @@ class BriefingDeltaGenerator:
         logger.info("delta_generation_started", briefing_id=briefing_id)
 
         # Download current briefing content from MinIO
-        current_sections = current_briefing.sections
+        _current_sections = current_briefing.sections
 
         # Build new sections from current intelligence state
         new_sections = await self._build_sections_from_state(new_state)
@@ -131,7 +135,7 @@ class BriefingDeltaGenerator:
             return None
 
         # Generate summary via LLM
-        summary = await self._generate_delta_summary(delta)
+        _summary = await self._generate_delta_summary(delta)
 
         # Build delta object
         delta_obj = BriefingDelta(
@@ -145,7 +149,7 @@ class BriefingDeltaGenerator:
         )
 
         # Write delta to MinIO
-        delta_uri = await self._write_delta_to_minio(
+        _delta_uri = await self._write_delta_to_minio(
             current_briefing.tenant_id, briefing_id, delta_obj
         )
 
@@ -157,7 +161,7 @@ class BriefingDeltaGenerator:
                 current_briefing.version + 1,
             )
 
-        duration_ms = (time.time() - start_time) * 1000
+        _duration_ms = (time.time() - start_time) * 1000
         logger.info(
             "delta_generation_completed",
             briefing_id=briefing_id,
@@ -170,12 +174,6 @@ class BriefingDeltaGenerator:
 
         return delta_obj
 
-    def _get_section_attr(self, section: Any, attr: str, default: Any = None) -> Any:
-        """Get attribute from section (handles both BriefingSection and dict)."""
-        if hasattr(section, attr):
-            return getattr(section, attr)
-        return section.get(attr, default)
-
     async def _build_sections_from_state(self, state: Any) -> list[dict[str, Any]]:
         """Build section dicts from intelligence state.
 
@@ -185,7 +183,7 @@ class BriefingDeltaGenerator:
         Returns:
             List of section dicts with keys: section_type, title, content, source_uris, confidence
         """
-        sections = []
+        _sections: list[dict[str, Any]] = []
 
         # This would read from MinIO URIs in state["content_uris"]
         # For now, return empty - actual implementation would download and parse
@@ -209,56 +207,78 @@ class BriefingDeltaGenerator:
             return None
 
         # Map sections by type for comparison
-        def get_section_type(s):
-            if hasattr(s, 'section_type'):
+        def get_section_type(s: Any) -> Any:
+            if hasattr(s, "section_type"):
                 return s.section_type
             return s.get("section_type", "")
 
-        def get_attr(s, attr, default=None):
+        def get_attr(s: Any, attr: str, default: Any = None) -> Any:
             if hasattr(s, attr):
                 return getattr(s, attr)
             return s.get(attr, None)
 
         current_by_type = {self._get_section_attr(s, "section_type"): s for s in current_sections}
-        new_by_type = {self._get_section_attr(s, "section_type"): s for s in new_sections}
+        _new_by_type = {self._get_section_attr(s, "section_type"): s for s in new_sections}
 
         current_types: set[str] = set(current_by_type.keys())
-        new_types: set[str] = set(self._get_section_attr(s, "section_type") for s in new_sections)
+        new_types: set[str] = {self._get_section_attr(s, "section_type") for s in new_sections}
 
-        added_types = new_types - current_types
-        removed_types = set(current_types) - new_types
-        common_types = set(current_by_type.keys()) & set(new_types)
+        _added_types = new_types - current_types
+        _removed_types = set(current_types) - new_types
+        _common_types = set(current_by_type.keys()) & set(new_types)
 
-        sections_added = []
-        sections_updated = []
-        sections_removed = []
+        sections_added: list[Any] = []
+        sections_updated: list[Any] = []
+        sections_removed: list[Any] = []
 
         # Check added sections
-        for sec_type in (set(self._get_section_attr(s, "section_type") for s in new_sections) - set(s.section_type for s in current_sections)):
-            new_sec = next(s for s in new_sections if self._get_section_attr(s, "section_type") == sec_type)
-            sections_added.append({
-                "section_type": sec_type,
-                "title": self._get_section_attr(new_sec, "title", sec_type),
-                "content": self._get_section_attr(new_sec, "content", ""),
-                "source_uris": self._get_section_attr(new_sec, "source_uris", []),
-                "confidence": self._get_section_attr(new_sec, "confidence", 0.7),
-            })
-
-        # Check updated sections (content changed)
-        common_types = set(self._get_section_attr(s, "section_type") for s in current_sections) & set(self._get_section_attr(s, "section_type") for s in new_sections)
-        for sec_type in set(self._get_section_attr(s, "section_type") for s in current_sections) & set(self._get_section_attr(s, "section_type") for s in new_sections):
-            current_sec = next(s for s in current_sections if self._get_section_attr(s, "section_type") == sec_type)
-            new_sec = next(s for s in new_sections if self._get_section_attr(s, "section_type") == sec_type)
-
-            # Compare content (simplified - could use diff)
-            if self._get_section_attr(current_sec, "content") != self._get_section_attr(new_sec, "content", ""):
-                sections_updated.append({
+        for sec_type in {self._get_section_attr(s, "section_type") for s in new_sections} - {
+            s.section_type for s in current_sections
+        }:
+            new_sec = next(
+                s for s in new_sections if self._get_section_attr(s, "section_type") == sec_type
+            )
+            sections_added.append(
+                {
                     "section_type": sec_type,
-                    "title": self._get_section_attr(new_sec, "title", self._get_section_attr(current_sec, "title")),
+                    "title": self._get_section_attr(new_sec, "title", sec_type),
                     "content": self._get_section_attr(new_sec, "content", ""),
                     "source_uris": self._get_section_attr(new_sec, "source_uris", []),
-                    "confidence": self._get_section_attr(new_sec, "confidence", current_sec.confidence),
-                })
+                    "confidence": self._get_section_attr(new_sec, "confidence", 0.7),
+                }
+            )
+
+        # Check updated sections (content changed)
+        _common_types = {self._get_section_attr(s, "section_type") for s in current_sections} & {
+            self._get_section_attr(s, "section_type") for s in new_sections
+        }
+        for sec_type in {self._get_section_attr(s, "section_type") for s in current_sections} & {
+            self._get_section_attr(s, "section_type") for s in new_sections
+        }:
+            current_sec = next(
+                s for s in current_sections if self._get_section_attr(s, "section_type") == sec_type
+            )
+            new_sec = next(
+                s for s in new_sections if self._get_section_attr(s, "section_type") == sec_type
+            )
+
+            # Compare content (simplified - could use diff)
+            if self._get_section_attr(current_sec, "content") != self._get_section_attr(
+                new_sec, "content", ""
+            ):
+                sections_updated.append(
+                    {
+                        "section_type": sec_type,
+                        "title": self._get_section_attr(
+                            new_sec, "title", self._get_section_attr(current_sec, "title")
+                        ),
+                        "content": self._get_section_attr(new_sec, "content", ""),
+                        "source_uris": self._get_section_attr(new_sec, "source_uris", []),
+                        "confidence": self._get_section_attr(
+                            new_sec, "confidence", current_sec.confidence
+                        ),
+                    }
+                )
 
         # Determine delta type
         total_sections = len(current_sections) + len(new_sections)
@@ -267,7 +287,9 @@ class BriefingDeltaGenerator:
 
         # Determine delta type based on changes
         # Count new anomaly sections (count individual sections, not grouped by type)
-        anomaly_sections = [s for s in new_sections if self._get_section_attr(s, "section_type") == "anomaly_alerts"]
+        anomaly_sections = [
+            s for s in new_sections if self._get_section_attr(s, "section_type") == "anomaly_alerts"
+        ]
 
         # Determine delta type based on changes
         if total_sections == 0 and len(new_sections) > 0:
@@ -349,7 +371,7 @@ class BriefingDeltaGenerator:
         delta: Any,
     ) -> str:
         """Write delta to MinIO."""
-        bucket = f"{self._bucket_prefix}-{tenant_id}"
+        _bucket = f"{self._bucket_prefix}-{tenant_id}"
         key = f"{briefing_id}/delta_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.json"
 
         data = delta.model_dump(mode="json")
@@ -361,7 +383,7 @@ class BriefingDeltaGenerator:
             data=json_data.encode("utf-8"),
             content_type="application/json",
         )
-        return uri
+        return str(uri)
 
 
 class BriefingDeltaWorker:
@@ -428,7 +450,7 @@ class BriefingDeltaWorker:
                 )
 
                 if result:
-                    for stream, messages in result:
+                    for _stream, messages in result:
                         for message_id, message_data in messages:
                             await self._process_message(message_id, message_data)
 

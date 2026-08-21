@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 # Lazy import to avoid OpenSSL conflicts
-def _register_adapters():
+def _register_adapters() -> None:
     try:
         from . import (
             sec,  # noqa: F401
@@ -13,9 +13,10 @@ def _register_adapters():
     except Exception:
         pass
 
+
 _register_adapters()
 
-from ..base import (
+from ..base import (  # noqa: E402
     AdapterNotFoundError,
     AdapterRegistrationError,
     AdapterRegistry,

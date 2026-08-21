@@ -87,15 +87,45 @@ class EarningsCallAdapter(SourceAdapter):
 
     # Sentiment keywords
     POSITIVE_KEYWORDS = {
-        "strong", "growth", "record", "beat", "exceeded", "outperform",
-        "optimistic", "confident", "robust", "healthy", "improved",
-        "accelerate", "momentum", "upside", "opportunity", "expansion",
+        "strong",
+        "growth",
+        "record",
+        "beat",
+        "exceeded",
+        "outperform",
+        "optimistic",
+        "confident",
+        "robust",
+        "healthy",
+        "improved",
+        "accelerate",
+        "momentum",
+        "upside",
+        "opportunity",
+        "expansion",
     }
     NEGATIVE_KEYWORDS = {
-        "weak", "decline", "miss", "below", "disappointing", "challenging",
-        "headwind", "uncertainty", "risk", "concern", "pressure",
-        "slowdown", "contraction", "downside", "difficulty", "reduce",
-        "cut", "delay", "impairment", "restructuring", "layoff",
+        "weak",
+        "decline",
+        "miss",
+        "below",
+        "disappointing",
+        "challenging",
+        "headwind",
+        "uncertainty",
+        "risk",
+        "concern",
+        "pressure",
+        "slowdown",
+        "contraction",
+        "downside",
+        "difficulty",
+        "reduce",
+        "cut",
+        "delay",
+        "impairment",
+        "restructuring",
+        "layoff",
     }
 
     def __init__(self) -> None:
@@ -230,8 +260,7 @@ class EarningsCallAdapter(SourceAdapter):
                 RawSignal(
                     source_type=self.source_type,
                     source_url=(
-                        f"earnings://{transcript.company_ticker}/"
-                        f"{transcript.fiscal_quarter}"
+                        f"earnings://{transcript.company_ticker}/{transcript.fiscal_quarter}"
                     ),
                     raw_content=json.dumps(item).encode("utf-8"),
                     fingerprint=self._compute_fingerprint(
@@ -249,7 +278,7 @@ class EarningsCallAdapter(SourceAdapter):
 
     def _identify_speaker_role(self, speaker: str) -> str:
         """Identify speaker role from name/title."""
-        speaker_lower = speaker.lower()
+        _speaker_lower = speaker.lower()
         for role, patterns in self.ROLE_PATTERNS.items():
             for pattern in patterns:
                 if re.search(pattern, speaker, re.IGNORECASE):
@@ -318,14 +347,8 @@ class EarningsCallAdapter(SourceAdapter):
             )
 
             # Analyze sentiment for CEO/CFO segments
-            management_segments = [
-                s for s in transcript.segments
-                if s.role in ("ceo", "cfo")
-            ]
-            sentiments = [
-                self._analyze_sentiment(s.text, s.role)
-                for s in management_segments
-            ]
+            management_segments = [s for s in transcript.segments if s.role in ("ceo", "cfo")]
+            sentiments = [self._analyze_sentiment(s.text, s.role) for s in management_segments]
 
             # Aggregate sentiment
             overall_sentiment = self._aggregate_sentiment(sentiments)
@@ -343,9 +366,7 @@ class EarningsCallAdapter(SourceAdapter):
                         "call_date": transcript.call_date.isoformat(),
                         "participants": transcript.participants,
                         "duration_seconds": transcript.duration_seconds,
-                        "segments": [
-                            s.model_dump(mode="json") for s in transcript.segments
-                        ],
+                        "segments": [s.model_dump(mode="json") for s in transcript.segments],
                     },
                     metadata={
                         "ticker": transcript.company_ticker,

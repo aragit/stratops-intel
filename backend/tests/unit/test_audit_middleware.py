@@ -49,8 +49,14 @@ class TestAuditLogMiddlewareMethods:
         call_args = mock_logger.return_value.info.call_args
         call_kwargs = call_args[1] if call_args and len(call_args) > 1 else {}
         expected_keys = {
-            "method", "path", "status_code", "timestamp", "duration_ms",
-            "ip_address", "request_id", "tenant_id"
+            "method",
+            "path",
+            "status_code",
+            "timestamp",
+            "duration_ms",
+            "ip_address",
+            "request_id",
+            "tenant_id",
         }
         assert expected_keys.issubset(set(call_kwargs.keys()))
 

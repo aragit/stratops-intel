@@ -263,8 +263,10 @@ class TestGetSession:
         mock_session.rollback = AsyncMock()
         mock_session.close = AsyncMock()
 
-        with patch.object(manager, "_session_maker") as mock_sm, \
-             patch.object(manager, "set_tenant_context", new_callable=AsyncMock):
+        with (
+            patch.object(manager, "_session_maker") as mock_sm,
+            patch.object(manager, "set_tenant_context", new_callable=AsyncMock),
+        ):
             mock_sm.return_value = mock_session
             async with manager.get_session(tenant_id):
                 pass
@@ -338,8 +340,10 @@ class TestPoolConnectionReturn:
         mock_session.rollback = AsyncMock()
         mock_session.close = AsyncMock()
 
-        with patch.object(manager, "_session_maker") as mock_sm, \
-             patch.object(manager, "set_tenant_context", new_callable=AsyncMock):
+        with (
+            patch.object(manager, "_session_maker") as mock_sm,
+            patch.object(manager, "set_tenant_context", new_callable=AsyncMock),
+        ):
             mock_sm.return_value = mock_session
             async with manager.get_session(tenant_id):
                 pass
@@ -363,8 +367,10 @@ class TestPoolConnectionReturn:
         mock_session.rollback = AsyncMock()
         mock_session.close = AsyncMock()
 
-        with patch.object(manager, "_session_maker") as mock_sm, \
-             patch.object(manager, "set_tenant_context", new_callable=AsyncMock):
+        with (
+            patch.object(manager, "_session_maker") as mock_sm,
+            patch.object(manager, "set_tenant_context", new_callable=AsyncMock),
+        ):
             mock_sm.return_value = mock_session
             async with manager.admin_session():
                 pass

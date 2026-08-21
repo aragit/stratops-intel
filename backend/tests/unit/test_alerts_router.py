@@ -377,6 +377,7 @@ class TestAlertRouterWorker:
         mock_redis.xgroup_create.assert_called_once_with(
             "test-stream", "test-group", id="0", mkstream=True
         )
+
     @pytest.mark.asyncio
     async def test_malformed_payload_dead_lettered(self, worker, mock_redis):
         """Test that a payload failing Alert validation goes to the DLQ and is acked."""

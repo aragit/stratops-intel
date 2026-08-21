@@ -48,9 +48,7 @@ class Neo4jClient:
 
         logger.info("initializing_neo4j_client", uri=self.uri)
         try:
-            self._driver = AsyncGraphDatabase.driver(
-                self.uri, auth=(self.user, self.password)
-            )
+            self._driver = AsyncGraphDatabase.driver(self.uri, auth=(self.user, self.password))
             # Verify connectivity
             await self.health()
             self._initialized = True
@@ -75,6 +73,9 @@ class Neo4jClient:
         await self._ensure_initialized()
 
         start_time = time.time()
+
+        if self._driver is None:
+            raise RuntimeError("Neo4j client is not connected; call connect() first")
 
         try:
             async with self._driver.session() as session:
@@ -120,6 +121,8 @@ class Neo4jClient:
             # Execute each statement separately
             statements = [s.strip() for s in schema_sql.split(";") if s.strip()]
 
+            if self._driver is None:
+                raise RuntimeError("Neo4j client is not connected; call connect() first")
             async with self._driver.session() as session:
                 for statement in statements:
                     # Skip empty statements
@@ -142,6 +145,9 @@ class Neo4jClient:
         await self._ensure_initialized()
 
         start_time = time.time()
+
+        if self._driver is None:
+            raise RuntimeError("Neo4j client is not connected; call connect() first")
 
         try:
             async with self._driver.session() as session:

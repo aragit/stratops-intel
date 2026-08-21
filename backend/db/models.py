@@ -31,7 +31,7 @@ class Base(DeclarativeBase):
     pass
 
 
-class TenantTier(str, enum.Enum):
+class TenantTier(enum.StrEnum):
     """Tenant subscription tier enumeration."""
 
     FREE = "free"
@@ -40,7 +40,7 @@ class TenantTier(str, enum.Enum):
     ENTERPRISE = "enterprise"
 
 
-class UserRole(str, enum.Enum):
+class UserRole(enum.StrEnum):
     """User role enumeration for RBAC."""
 
     OWNER = "owner"
@@ -89,9 +89,7 @@ class Tenant(Base):
         "TenantConfig", back_populates="tenant", cascade="all, delete-orphan", lazy="selectin"
     )
 
-    __table_args__ = (
-        Index("ix_tenants_slug", "slug", unique=True),
-    )
+    __table_args__ = (Index("ix_tenants_slug", "slug", unique=True),)
 
     def __repr__(self) -> str:
         return f"<Tenant(id={self.id}, name={self.name!r}, slug={self.slug!r})>"
@@ -125,9 +123,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(
         String(50), nullable=False, server_default=UserRole.MEMBER.value
     )
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
-    )
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -178,21 +174,17 @@ class APIKey(Base):
     scopes: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False, default=dict, server_default=text("'{}'")
     )
-    expires_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    last_used_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
-    )
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("true"))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
     tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="api_keys", lazy="selectin")
-    user: Mapped[Optional["User"]] = relationship("User", back_populates="api_keys", lazy="selectin")
+    user: Mapped[Optional["User"]] = relationship(
+        "User", back_populates="api_keys", lazy="selectin"
+    )
 
     __table_args__ = (
         UniqueConstraint("key_hash", name="uq_api_keys_key_hash"),
@@ -235,7 +227,9 @@ class TenantConfig(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
 
-    tenant: Mapped["Tenant"] = relationship("Tenant", back_populates="tenant_configs", lazy="selectin")
+    tenant: Mapped["Tenant"] = relationship(
+        "Tenant", back_populates="tenant_configs", lazy="selectin"
+    )
 
     __table_args__ = (
         UniqueConstraint("tenant_id", name="uq_tenant_configs_tenant_id"),
@@ -276,9 +270,7 @@ class Signal(Base):
     structured_payload: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False, default=dict, server_default=text("'{}'")
     )
-    collected_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False
-    )
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     meta: Mapped[dict[str, Any]] = mapped_column(
         JSON, nullable=False, default=dict, server_default=text("'{}'")
     )
@@ -296,7 +288,9 @@ class Signal(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Signal(id={self.id}, source_type={self.source_type!r}, tenant_id={self.tenant_id})>"
+        return (
+            f"<Signal(id={self.id}, source_type={self.source_type!r}, tenant_id={self.tenant_id})>"
+        )
 
 
 class BriefingModel(Base):
@@ -325,12 +319,8 @@ class BriefingModel(Base):
     content_md_uri: Mapped[str] = mapped_column(String(500), nullable=False)
     version: Mapped[int] = mapped_column(default=1, nullable=False)
     is_current: Mapped[bool] = mapped_column(default=True, nullable=False)
-    generated_by: Mapped[dict[str, Any] | None] = mapped_column(
-        JSON, nullable=True
-    )
-    briefing_metadata: Mapped[dict[str, Any] | None] = mapped_column(
-        JSON, nullable=True
-    )
+    generated_by: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    briefing_metadata: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

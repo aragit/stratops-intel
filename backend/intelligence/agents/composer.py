@@ -35,7 +35,10 @@ class BriefingSection(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    section_type: str = Field(..., description="Section type: executive_summary, competitive_landscape, threat_assessment, trend_analysis, anomaly_alerts")
+    section_type: str = Field(
+        ...,
+        description="Section type: executive_summary, competitive_landscape, threat_assessment, trend_analysis, anomaly_alerts",
+    )
     title: str = Field(..., description="Section title")
     content: str = Field(..., description="Markdown content")
     source_uris: list[str] = Field(default_factory=list, description="Evidence URIs")
@@ -226,43 +229,53 @@ class BriefingComposerNode:
 
         # Correlation section
         if correlations:
-            sections.append(BriefingSection(
-                section_type="correlation_analysis",
-                title="Competitive Correlations",
-                content=self._format_correlations(correlations),
-                source_uris=[uri for uri in intelligence if "correlations" in intelligence[uri]],
-                confidence=0.85,
-            ))
+            sections.append(
+                BriefingSection(
+                    section_type="correlation_analysis",
+                    title="Competitive Correlations",
+                    content=self._format_correlations(correlations),
+                    source_uris=[
+                        uri for uri in intelligence if "correlations" in intelligence[uri]
+                    ],
+                    confidence=0.85,
+                )
+            )
 
         # Trend analysis section
         if trends:
-            sections.append(BriefingSection(
-                section_type="trend_analysis",
-                title="Trend Analysis",
-                content=self._format_trends(trends),
-                source_uris=[uri for uri in intelligence if "trends" in intelligence[uri]],
-                confidence=0.8,
-            ))
+            sections.append(
+                BriefingSection(
+                    section_type="trend_analysis",
+                    title="Trend Analysis",
+                    content=self._format_trends(trends),
+                    source_uris=[uri for uri in intelligence if "trends" in intelligence[uri]],
+                    confidence=0.8,
+                )
+            )
 
         # Anomaly alerts section
         if anomalies:
-            sections.append(BriefingSection(
-                section_type="anomaly_alerts",
-                title="Anomaly Alerts",
-                content=self._format_anomalies(anomalies),
-                source_uris=[uri for uri in intelligence if "anomalies" in intelligence[uri]],
-                confidence=0.9,
-            ))
+            sections.append(
+                BriefingSection(
+                    section_type="anomaly_alerts",
+                    title="Anomaly Alerts",
+                    content=self._format_anomalies(anomalies),
+                    source_uris=[uri for uri in intelligence if "anomalies" in intelligence[uri]],
+                    confidence=0.9,
+                )
+            )
 
         # Narrative synthesis section
         if narratives:
-            sections.append(BriefingSection(
-                section_type="narrative_synthesis",
-                title="Narrative Synthesis",
-                content="\n\n".join(n["content"] for n in narratives),
-                source_uris=[n["uri"] for n in narratives],
-                confidence=0.85,
-            ))
+            sections.append(
+                BriefingSection(
+                    section_type="narrative_synthesis",
+                    title="Narrative Synthesis",
+                    content="\n\n".join(n["content"] for n in narratives),
+                    source_uris=[n["uri"] for n in narratives],
+                    confidence=0.85,
+                )
+            )
 
         return sections
 
@@ -277,7 +290,9 @@ class BriefingComposerNode:
             entity_b = corr.get("entity_b", {}).get("name", "Unknown")
             corr_type = corr.get("correlation_type", "unknown")
             strength = corr.get("strength", 0)
-            lines.append(f"- **{entity_a}** ↔ **{entity_b}** ({corr_type}): strength={strength:.2f}")
+            lines.append(
+                f"- **{entity_a}** ↔ **{entity_b}** ({corr_type}): strength={strength:.2f}"
+            )
 
         return "\n".join(lines)
 
@@ -293,7 +308,9 @@ class BriefingComposerNode:
             direction = trend.get("direction", "stable")
             z_score = trend.get("z_score", 0)
             confidence = trend.get("confidence", 0)
-            lines.append(f"- **{entity}** ({trend_type}): {direction} (z={z_score:.2f}, conf={confidence:.2f})")
+            lines.append(
+                f"- **{entity}** ({trend_type}): {direction} (z={z_score:.2f}, conf={confidence:.2f})"
+            )
 
         return "\n".join(lines)
 
@@ -337,7 +354,9 @@ class BriefingComposerNode:
             sections_payload = [
                 {
                     "title": s.title,
-                    "content_uri": s.source_uris[0] if s.source_uris else f"s3://placeholder/{uuid.uuid4()}",
+                    "content_uri": s.source_uris[0]
+                    if s.source_uris
+                    else f"s3://placeholder/{uuid.uuid4()}",
                     "source_type": s.section_type,
                 }
                 for s in sections
@@ -362,7 +381,9 @@ class BriefingComposerNode:
                 # Combine narrative with key takeaways
                 content = narrative
                 if key_takeaways:
-                    content += "\n\n**Key Takeaways:**\n" + "\n".join(f"- {t}" for t in key_takeaways)
+                    content += "\n\n**Key Takeaways:**\n" + "\n".join(
+                        f"- {t}" for t in key_takeaways
+                    )
 
                 return BriefingSection(
                     section_type="executive_summary",
@@ -391,7 +412,7 @@ class BriefingComposerNode:
         Returns:
             S3 URI of the briefing markdown
         """
-        bucket = f"{self._bucket_prefix}-{tenant_id}"
+        _bucket = f"{self._bucket_prefix}-{tenant_id}"
         briefing_id = briefing.id
         version = briefing.version
 
@@ -441,4 +462,4 @@ class BriefingComposerNode:
             content_type="application/json",
         )
 
-        return md_uri
+        return str(md_uri)

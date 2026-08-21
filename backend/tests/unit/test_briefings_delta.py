@@ -17,7 +17,9 @@ from backend.intelligence.agents.delta import (
 def mock_minio_client():
     """Mock MinIO client."""
     client = mock.AsyncMock()
-    client.upload = mock.AsyncMock(return_value="s3://stratops-briefings-test/briefing-123/delta.json")
+    client.upload = mock.AsyncMock(
+        return_value="s3://stratops-briefings-test/briefing-123/delta.json"
+    )
     return client
 
 
@@ -49,6 +51,7 @@ def generator(mock_minio_client, mock_narrative_client, mock_briefing_repo):
 def current_briefing():
     """Current briefing for testing."""
     from backend.intelligence.agents.composer import Briefing, BriefingSection
+
     return Briefing(
         id="briefing-123",
         tenant_id="001",
@@ -119,7 +122,9 @@ class TestBriefingDeltaGenerator:
     def mock_minio_client(self):
         """Mock MinIO client."""
         client = mock.AsyncMock()
-        client.upload = mock.AsyncMock(return_value="s3://stratops-briefings-test/briefing-123/delta.json")
+        client.upload = mock.AsyncMock(
+            return_value="s3://stratops-briefings-test/briefing-123/delta.json"
+        )
         return client
 
     @pytest.fixture
@@ -147,6 +152,7 @@ class TestBriefingDeltaGenerator:
     def current_briefing(self):
         """Current briefing for testing."""
         from backend.intelligence.agents.composer import Briefing, BriefingSection
+
         return Briefing(
             id="briefing-123",
             tenant_id="001",
@@ -180,8 +186,7 @@ class TestBriefingDeltaGenerator:
         """No changes returns None."""
         # Empty new sections - no changes
         with mock.patch.object(
-            BriefingDeltaGenerator, "_build_sections_from_state",
-            return_value=[]
+            BriefingDeltaGenerator, "_build_sections_from_state", return_value=[]
         ):
             delta = await generator.generate_delta(current_briefing, {"content_uris": []})
 
@@ -191,7 +196,8 @@ class TestBriefingDeltaGenerator:
     async def test_generate_delta_append(self, generator, current_briefing):
         """Test append delta type."""
         from backend.intelligence.agents.composer import BriefingSection
-        new_sections = [
+
+        _new_sections = [
             BriefingSection(
                 section_type="anomaly_alerts",
                 title="Anomaly Alerts",
@@ -202,7 +208,8 @@ class TestBriefingDeltaGenerator:
         ]
 
         with mock.patch.object(
-            BriefingDeltaGenerator, "_build_sections_from_state",
+            BriefingDeltaGenerator,
+            "_build_sections_from_state",
             return_value=[
                 BriefingSection(
                     section_type="anomaly_alerts",
@@ -211,9 +218,11 @@ class TestBriefingDeltaGenerator:
                     source_uris=["s3://anomaly-1"],
                     confidence=0.9,
                 )
-            ]
+            ],
         ):
-            with mock.patch.object(generator, "_write_delta_to_minio", new_callable=mock.AsyncMock) as mock_write:
+            with mock.patch.object(
+                generator, "_write_delta_to_minio", new_callable=mock.AsyncMock
+            ) as mock_write:
                 mock_write.return_value = "s3://delta.json"
 
                 delta = await generator.generate_delta(
@@ -237,6 +246,7 @@ class TestBriefingDeltaGenerator:
     def test_compare_sections_append(self, generator):
         """Test append delta type detection."""
         from backend.intelligence.agents.composer import BriefingSection
+
         current = [
             BriefingSection(section_type="executive_summary", title="Summary", content="Same"),
             BriefingSection(section_type="trend_analysis", title="Trends", content="Same"),
@@ -256,6 +266,7 @@ class TestBriefingDeltaGenerator:
     def test_compare_sections_replace_section(self, generator):
         """Test replace_section delta type detection."""
         from backend.intelligence.agents.composer import BriefingSection
+
         current = [
             BriefingSection(section_type="trend_analysis", title="Trends", content="Old content"),
         ]
@@ -271,6 +282,7 @@ class TestBriefingDeltaGenerator:
     def test_compare_sections_full_regeneration_threshold(self, generator):
         """Test full_regeneration when >50% sections changed."""
         from backend.intelligence.agents.composer import BriefingSection
+
         current = [
             BriefingSection(section_type="a", title="A", content="A"),
             BriefingSection(section_type="b", title="B", content="B"),
@@ -292,6 +304,7 @@ class TestBriefingDeltaGenerator:
     def test_compare_sections_anomaly_regen(self, generator):
         """Test full_regeneration when 3+ new anomalies."""
         from backend.intelligence.agents.composer import BriefingSection
+
         current = [
             BriefingSection(section_type="executive_summary", title="Summary", content="Same"),
         ]
@@ -350,13 +363,19 @@ class TestBriefingDeltaGenerator:
         delta.tenant_id = "001"
         delta.briefing_id = "briefing-123"
 
-        mock_minio_client.upload = mock.AsyncMock(return_value="s3://stratops-briefings-001/briefing-123/delta.json")
+        mock_minio_client.upload = mock.AsyncMock(
+            return_value="s3://stratops-briefings-001/briefing-123/delta.json"
+        )
 
-        uri = await generator._write_delta_to_minio("001", "briefing-123", mock.MagicMock(
-            model_dump=mock.MagicMock(return_value={}),
-            tenant_id="001",
-            briefing_id="briefing-123",
-        ))
+        uri = await generator._write_delta_to_minio(
+            "001",
+            "briefing-123",
+            mock.MagicMock(
+                model_dump=mock.MagicMock(return_value={}),
+                tenant_id="001",
+                briefing_id="briefing-123",
+            ),
+        )
 
         assert uri.startswith("s3://stratops-briefings-")
         mock_minio_client.upload.assert_called_once()

@@ -10,9 +10,11 @@ security.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import structlog
+from sqlalchemy import text
 
 logger = structlog.get_logger(__name__)
 
@@ -26,7 +28,7 @@ DEFAULT_ALPHA = 0.5
 DEFAULT_TOP_K = 10
 
 
-def rrf_score(ranks: list[int], k: int = RRF_K) -> float:
+def rrf_score(ranks: list[float], k: int = RRF_K) -> float:
     """Compute the Reciprocal Rank Fusion score for a document.
 
     Given the *ranks* a document received across multiple rankings (e.g. one

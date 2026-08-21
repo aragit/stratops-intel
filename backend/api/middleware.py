@@ -7,6 +7,7 @@ per-tenant/per-IP rate limiting backed by Redis.
 from __future__ import annotations
 
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
@@ -56,7 +57,9 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
     a 400 response.
     """
 
-    async def dispatch(self, request: Request, call_next: Any) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """Process the request and set tenant context on state.
 
         Args:
@@ -79,14 +82,16 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
                     content={"detail": "Invalid x-tenant-id header format"},
                 )
 
-        response = await call_next(request)
+        response: Response = await call_next(request)
         return response
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     """Log every request with structlog (request_id, tenant_id, method, path, status, duration)."""
 
-    async def dispatch(self, request: Request, call_next: Any) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """Log the request lifecycle.
 
         Args:
@@ -177,7 +182,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         tenant_part = str(tenant_id) if tenant_id else "anonymous"
         return f"{self._key_prefix}:{tenant_part}:{self._get_client_ip(request)}"
 
-    async def dispatch(self, request: Request, call_next: Any) -> Response:
+    async def dispatch(
+        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """Enforce the distributed rate limit.
 
         Args:
@@ -190,7 +197,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         redis_client = getattr(getattr(request.app, "state", None), "redis", None)
         if redis_client is None:
             logger.warning("rate_limit_backend_unavailable", reason="redis_not_initialized")
-            return await call_next(request)
+            response = await call_next(request)
+            return response
 
         key = self._get_rate_limit_key(request)
         now_ms = int(time.time() * 1000)
@@ -212,11 +220,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 key=key,
                 error=str(exc),
             )
-            return await call_next(request)
+            response = await call_next(request)
+            return response
 
         # Fail open on unexpected replies (e.g. mocked or incompatible backends)
         if not isinstance(result, (list, tuple)) or len(result) < 2:
-            return await call_next(request)
+            response = await call_next(request)
+            return response
 
         allowed = int(result[0]) == 1
         remaining = max(0, int(result[1]))

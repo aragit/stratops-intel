@@ -48,11 +48,13 @@ try:
 except ImportError:
     REDIS_AVAILABLE = False
 
+
 # MinIO/S3 - lazy import
 def _get_aiobotocore():
     try:
         import aiobotocore.session
         from aiobotocore.client import AioBaseClient
+
         return aiobotocore.session, AioBaseClient, True
     except ImportError:
         return None, None, False
@@ -152,6 +154,7 @@ class IngestionWorker:
     async def _get_ingestion_streams(self, tenant_id: str) -> list[str]:
         """Get list of ingestion streams for a tenant."""
         from streams.keys import StreamKeyBuilder
+
         key_builder = StreamKeyBuilder()
         # In production, we'd get this from config
         source_types = ["web", "sec", "jobs", "patents", "earnings", "github"]
@@ -303,7 +306,9 @@ class IngestionWorker:
 
                 # Step 2: Parse
                 logger.debug("parsing", trace_id=trace_id)
-                raw_signals: list[RawSignal] = await adapter.parse(result.raw_data, result.content_type)
+                raw_signals: list[RawSignal] = await adapter.parse(
+                    result.raw_data, result.content_type
+                )
 
                 # Add tenant_id to metadata for all signals
                 for sig in raw_signals:
@@ -408,7 +413,7 @@ class IngestionWorker:
                     "collected_at": signal.collected_at.isoformat(),
                     "metadata": signal.metadata,
                 },
-                trace_id=trace_id,
+                metadata={"trace_id": trace_id},
             )
 
 

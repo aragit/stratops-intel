@@ -34,7 +34,7 @@ class MockRedis:
 
     async def xread(self, streams: dict, count: int, block: int):
         results = []
-        for stream, last_id in streams.items():
+        for stream, _last_id in streams.items():
             if stream in self.streams:
                 messages = self.streams[stream]
                 if messages:
@@ -65,7 +65,7 @@ class MockS3Client:
     def __init__(self):
         self.objects: dict[str, bytes] = {}
 
-    async def put_object(self, Bucket: str, Key: str, Body: bytes, **kwargs):
+    async def put_object(self, Bucket: str, Key: str, Body: bytes, **kwargs):  # noqa: N803
         self.objects[f"{Bucket}/{Key}"] = Body
 
     async def __aenter__(self):
@@ -91,12 +91,14 @@ class MockAdapter:
 
     async def parse(self, raw_data: bytes, content_type: str):
         self.parse_called = True
-        return [RawSignal(
-            source_type="test",
-            source_url="https://test.com",
-            raw_content=b"test content",
-            metadata={"tenant_id": "test-tenant"},
-        )]
+        return [
+            RawSignal(
+                source_type="test",
+                source_url="https://test.com",
+                raw_content=b"test content",
+                metadata={"tenant_id": "test-tenant"},
+            )
+        ]
 
     async def fingerprint(self, signal):
         self.fingerprint_called = True
@@ -104,18 +106,20 @@ class MockAdapter:
 
     async def normalize(self, signals):
         self.normalize_called = True
-        return [NormalizedSignal(
-            source_type="test",
-            source_url="https://test.com",
-            content_uri="s3://bucket/key",
-            fingerprint=hashlib.sha256(b"test").hexdigest(),
-            structured_payload={"title": "Test"},
-            collected_at=datetime.utcnow(),
-        )]
+        return [
+            NormalizedSignal(
+                source_type="test",
+                source_url="https://test.com",
+                content_uri="s3://bucket/key",
+                fingerprint=hashlib.sha256(b"test").hexdigest(),
+                structured_payload={"title": "Test"},
+                collected_at=datetime.utcnow(),
+            )
+        ]
 
 
 # Need imports
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager  # noqa: E402
 
 
 class TestIngestionWorker:
@@ -177,19 +181,28 @@ class TestIngestionWorker:
                 return IngestionResult(b"raw", "text/plain", None, {})
 
             async def parse(self, raw_data, content_type):
-                return [RawSignal(source_type="test", source_url="https://test", raw_content=b"content", metadata={"tenant_id": "test-tenant"})]
+                return [
+                    RawSignal(
+                        source_type="test",
+                        source_url="https://test",
+                        raw_content=b"content",
+                        metadata={"tenant_id": "test-tenant"},
+                    )
+                ]
 
             async def fingerprint(self, signal):
                 return "abc123"
 
             async def normalize(self, signals):
-                return [NormalizedSignal(
-                    source_type="test",
-                    source_url="https://test",
-                    content_uri="s3://bucket/key",
-                    fingerprint="abc123",
-                    structured_payload={},
-                )]
+                return [
+                    NormalizedSignal(
+                        source_type="test",
+                        source_url="https://test",
+                        content_uri="s3://bucket/key",
+                        fingerprint="abc123",
+                        structured_payload={},
+                    )
+                ]
 
         AdapterRegistry.register(TestAdapter)
 
@@ -211,8 +224,8 @@ class TestIngestionWorker:
         results = await mock_redis.xread(streams, count=10, block=100)
 
         assert results is not None
-        for stream, messages in results:
-            for msg_id, msg_data in messages:
+        for _stream, messages in results:
+            for _msg_id, msg_data in messages:
                 # Verify message structure
                 assert msg_data["tenant_id"] == tenant_id
                 assert msg_data["adapter_name"] == "test_adapter"

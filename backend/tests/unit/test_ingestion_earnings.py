@@ -178,7 +178,9 @@ class TestEarningsCallAdapter:
         assert signal.source_url == "earnings://AAPL/Q1-2024"
         assert signal.metadata["ticker"] == "AAPL"
         assert signal.metadata["fiscal_quarter"] == "Q1-2024"
-        assert json.loads(signal.raw_content.decode("utf-8")) == sample_transcript.model_dump(mode="json")
+        assert json.loads(signal.raw_content.decode("utf-8")) == sample_transcript.model_dump(
+            mode="json"
+        )
 
     def test_identify_speaker_role(self, adapter) -> None:
         """Speaker role identification."""
@@ -243,9 +245,7 @@ class TestEarningsCallAdapter:
         assert len(fp1) == 16  # Truncated SHA256
 
     @pytest.mark.asyncio
-    async def test_normalize_uploads_transcript(
-        self, adapter, sample_transcript
-    ) -> None:
+    async def test_normalize_uploads_transcript(self, adapter, sample_transcript) -> None:
         """Normalize uploads transcript to MinIO and returns content URI."""
         signal = RawSignal(
             source_type="earnings",
@@ -269,9 +269,7 @@ class TestEarningsCallAdapter:
             assert "management_remarks_count" in norm.metadata
 
     @pytest.mark.asyncio
-    async def test_normalize_extracts_sentiment(
-        self, adapter, sample_transcript
-    ) -> None:
+    async def test_normalize_extracts_sentiment(self, adapter, sample_transcript) -> None:
         """Normalize extracts sentiment from CEO/CFO remarks."""
         signal = RawSignal(
             source_type="earnings",

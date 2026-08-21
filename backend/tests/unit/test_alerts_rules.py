@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest import mock
 
 import pytest
@@ -103,10 +104,6 @@ class TestAlertRuleEngine:
             "tenant_id": "00000000-0000-0000-0000-000000000001",
             "trace_id": "trace-001",
             "signal_uris": [],
-            "extracted_entities": [
-                {"company_name": "Company A", "ticker": "A"},
-                {"company_name": "Company B", "ticker": "B"},
-            ],
             "content_uris": [],
             "extracted_entities": [],
             "correlation_graph_delta": [],
@@ -176,7 +173,7 @@ class TestAlertRuleEngine:
             severity="warning",
         )
 
-        state = {
+        _state = {
             "tenant_id": "001",
             "trace_id": "trace-001",
         }
@@ -240,7 +237,7 @@ class TestAlertRuleEngine:
     @pytest.mark.asyncio
     async def test_multiple_rules_some_trigger(self):
         """Multiple rules - some trigger, some don't."""
-        engine = AlertRuleEngine()
+        _engine = AlertRuleEngine()
 
         rule1 = AlertRule(
             tenant_id="001",
@@ -306,6 +303,7 @@ class TestAlertRuleEngine:
         assert alert.evidence == {"key": "value"}
         assert alert.id
         assert alert.created_at
+
 
 class TestExtractMetrics:
     """Tests for AlertRuleEngine._extract_metrics."""
@@ -376,7 +374,9 @@ class TestExtractMetrics:
         flat = engine._extract_metrics(rich_state, "pricing_delta")
         assert flat == {"Apple": 0.22}
 
-    def test_flat_metric_unknown_returns_empty(self, engine: AlertRuleEngine, rich_state: dict) -> None:
+    def test_flat_metric_unknown_returns_empty(
+        self, engine: AlertRuleEngine, rich_state: dict
+    ) -> None:
         assert engine._extract_metrics(rich_state, "nonexistent") == {}
 
 
@@ -479,7 +479,9 @@ class TestCorrelationEvaluator:
         )
 
     @pytest.mark.asyncio
-    async def test_triggers_on_strong_correlation(self, engine: AlertRuleEngine, merge_delta: str) -> None:
+    async def test_triggers_on_strong_correlation(
+        self, engine: AlertRuleEngine, merge_delta: str
+    ) -> None:
         rule = AlertRule(
             tenant_id="001",
             name="Pricing Correlation",
@@ -496,7 +498,9 @@ class TestCorrelationEvaluator:
         assert alerts[0].evidence["entity_b"] == "Google"
 
     @pytest.mark.asyncio
-    async def test_no_trigger_below_min_strength(self, engine: AlertRuleEngine, merge_delta: str) -> None:
+    async def test_no_trigger_below_min_strength(
+        self, engine: AlertRuleEngine, merge_delta: str
+    ) -> None:
         rule = AlertRule(
             tenant_id="001",
             name="Strong Pricing Correlation",
@@ -509,7 +513,9 @@ class TestCorrelationEvaluator:
         assert alerts == []
 
     @pytest.mark.asyncio
-    async def test_no_trigger_on_type_mismatch(self, engine: AlertRuleEngine, merge_delta: str) -> None:
+    async def test_no_trigger_on_type_mismatch(
+        self, engine: AlertRuleEngine, merge_delta: str
+    ) -> None:
         rule = AlertRule(
             tenant_id="001",
             name="Talent Correlation",

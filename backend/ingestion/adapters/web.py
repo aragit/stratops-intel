@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import urllib.parse
 from datetime import datetime
-from typing import Any
+from typing import Any, ClassVar
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
@@ -29,7 +29,7 @@ except ImportError:
 
 # SimHash for near-duplicate detection
 try:
-    import simhash
+    import simhash  # noqa: F401
 
     SIMHASH_AVAILABLE = True
 except ImportError:
@@ -53,20 +53,23 @@ from ..base import (
 
 
 # Lazy imports - avoid module-level import conflicts
-def _get_aiobotocore():
+def _get_aiobotocore() -> tuple[Any, bool]:
     try:
         import aiobotocore.session
+
         return aiobotocore.session, True
     except ImportError:
         return None, False
 
 
-def _get_simhash():
+def _get_simhash() -> tuple[Any, bool]:
     try:
         import simhash
+
         return simhash, True
     except ImportError:
         return None, False
+
 
 logger = structlog.get_logger(__name__)
 
@@ -121,7 +124,9 @@ class WebMonitorAdapter(SourceAdapter):
         """Lazy-initialize Playwright browser."""
         if self._browser is None or not self._browser.is_connected():
             if not PLAYWRIGHT_AVAILABLE:
-                raise RuntimeError("Playwright not installed. Install with: pip install playwright && playwright install")
+                raise RuntimeError(
+                    "Playwright not installed. Install with: pip install playwright && playwright install"
+                )
             self._playwright = await async_playwright().start()
             self._browser = await self._playwright.chromium.launch(headless=True)
         return self._browser
@@ -157,7 +162,9 @@ class WebMonitorAdapter(SourceAdapter):
                 metadata={
                     "fetched_count": 0,
                     "error_count": len(cfg.urls),
-                    "errors": [{"url": str(u), "error": "Playwright not available"} for u in cfg.urls],
+                    "errors": [
+                        {"url": str(u), "error": "Playwright not available"} for u in cfg.urls
+                    ],
                     "start_index": 0,
                     "next_cursor": None,
                 },
@@ -212,7 +219,9 @@ class WebMonitorAdapter(SourceAdapter):
             "error_count": len(errors),
             "errors": errors,
             "start_index": start_idx,
-            "next_cursor": str(start_idx + len(urls)) if start_idx + len(urls) < len(cfg.urls) else None,
+            "next_cursor": str(start_idx + len(urls))
+            if start_idx + len(urls) < len(cfg.urls)
+            else None,
         }
 
         return IngestionResult(
@@ -237,7 +246,9 @@ class WebMonitorAdapter(SourceAdapter):
     async def parse(self, raw_data: bytes, content_type: str) -> list[RawSignal]:
         """Parse HTML into RawSignal objects (one per URL)."""
         if not BS4_AVAILABLE:
-            raise RuntimeError("beautifulsoup4 not installed. Install with: pip install beautifulsoup4")
+            raise RuntimeError(
+                "beautifulsoup4 not installed. Install with: pip install beautifulsoup4"
+            )
 
         html = raw_data.decode("utf-8", errors="replace")
         # Split by our URL separator

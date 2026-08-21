@@ -126,7 +126,7 @@ async def login(body: OAuth2PasswordRequestForm = Depends()) -> dict[str, str]:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database error",
-        )
+        ) from exc
 
     if user is None or not verify_password(body.password, user.hashed_password):
         logger.warning("login_failed", email=body.username)
@@ -136,7 +136,9 @@ async def login(body: OAuth2PasswordRequestForm = Depends()) -> dict[str, str]:
         )
 
     access_token = create_access_token(data={"sub": str(user.id), "tenant_id": str(user.tenant_id)})
-    refresh_token = create_refresh_token(data={"sub": str(user.id), "tenant_id": str(user.tenant_id)})
+    refresh_token = create_refresh_token(
+        data={"sub": str(user.id), "tenant_id": str(user.tenant_id)}
+    )
 
     logger.info("login_success", user_id=str(user.id), tenant_id=str(user.tenant_id))
 
@@ -213,7 +215,7 @@ async def create_api_key(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create API key",
-        )
+        ) from exc
 
     logger.info("api_key_created", key_id=str(api_key.id), tenant_id=str(user.tenant_id))
 
@@ -254,7 +256,7 @@ async def revoke_api_key(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to revoke API key",
-        )
+        ) from exc
 
     logger.info("api_key_revoked", key_id=str(key_id), tenant_id=str(user.tenant_id))
 
@@ -284,6 +286,7 @@ async def health_readiness() -> dict[str, Any]:
         manager = get_session_manager()
         async with manager.admin_session() as session:
             from sqlalchemy import text
+
             await session.execute(text("SELECT 1"))
         checks["postgres"] = "ok"
     except Exception as exc:

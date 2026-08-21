@@ -36,7 +36,8 @@ mcp_server = FastMCP("stratops-intel-mcp")
 # Helper: neo4j query wrapper
 # ---------------------------------------------------------------------------
 
-async def _neo4j_query(session, query: str, parameters: dict[str, Any] | None = None) -> Any:
+
+async def _neo4j_query(session: Any, query: str, parameters: dict[str, Any] | None = None) -> Any:
     """Run a query through a Neo4j session and return records.
 
     Args:
@@ -57,6 +58,7 @@ async def _neo4j_query(session, query: str, parameters: dict[str, Any] | None = 
 # ---------------------------------------------------------------------------
 # 1. query_knowledge_graph
 # ---------------------------------------------------------------------------
+
 
 @mcp_server.tool(
     name="query_knowledge_graph",
@@ -94,7 +96,9 @@ async def query_knowledge_graph(
     )
 
     async with client.get_session() as session:  # type: ignore[attr-defined]
-        records = await _neo4j_query(session, cypher, {"entity_name": entity_name, "tid": tenant_id})
+        records = await _neo4j_query(
+            session, cypher, {"entity_name": entity_name, "tid": tenant_id}
+        )
 
     # Neo4j records are dict-like; convert to serializable format
     nodes: list[dict[str, Any]] = []
@@ -119,6 +123,7 @@ async def query_knowledge_graph(
 # ---------------------------------------------------------------------------
 # 2. get_entity_trends
 # ---------------------------------------------------------------------------
+
 
 @mcp_server.tool(
     name="get_entity_trends",
@@ -179,6 +184,7 @@ async def get_entity_trends(
 # 3. run_sec_hybrid_retrieval
 # ---------------------------------------------------------------------------
 
+
 @mcp_server.tool(
     name="run_sec_hybrid_retrieval",
     title="Run SEC Hybrid Retrieval",
@@ -216,7 +222,10 @@ async def run_sec_hybrid_retrieval(
 
     hash_digest = hashlib.sha256(query.encode("utf-8")).hexdigest()
     # Build a 768-dimensional vector from the hex digest
-    vec = [float(int(hash_digest[i:i+2], 16) / 255.0) for i in range(0, min(len(hash_digest) * 2, 768) * 2, 2)]
+    vec = [
+        float(int(hash_digest[i : i + 2], 16) / 255.0)
+        for i in range(0, min(len(hash_digest) * 2, 768) * 2, 2)
+    ]
     # Ensure exactly 768 dimensions
     vec = vec[:768] if len(vec) >= 768 else vec + [0.0] * (768 - len(vec))
 
@@ -234,6 +243,7 @@ async def run_sec_hybrid_retrieval(
 # ---------------------------------------------------------------------------
 # Server lifecycle
 # ---------------------------------------------------------------------------
+
 
 async def _run_mcp_server() -> None:
     """Run the FastMCP server using stdio transport (default for tool invocation)."""

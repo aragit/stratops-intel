@@ -99,33 +99,23 @@ class TrendAnalyzerNode:
         all_trends: list[TrendResult] = []
 
         # 1. Pricing trends
-        pricing_trends = await self._analyze_pricing_trends(
-            tenant_id, window_start, window_end
-        )
+        pricing_trends = await self._analyze_pricing_trends(tenant_id, window_start, window_end)
         all_trends.extend(pricing_trends)
 
         # 2. Hiring trends
-        hiring_trends = await self._analyze_hiring_trends(
-            tenant_id, window_start, window_end
-        )
+        hiring_trends = await self._analyze_hiring_trends(tenant_id, window_start, window_end)
         all_trends.extend(hiring_trends)
 
         # 3. Mention frequency trends
-        mention_trends = await self._analyze_mention_trends(
-            tenant_id, window_start, window_end
-        )
+        mention_trends = await self._analyze_mention_trends(tenant_id, window_start, window_end)
         all_trends.extend(mention_trends)
 
         # 4. Sentiment trends
-        sentiment_trends = await self._analyze_sentiment_trends(
-            tenant_id, window_start, window_end
-        )
+        sentiment_trends = await self._analyze_sentiment_trends(tenant_id, window_start, window_end)
         all_trends.extend(sentiment_trends)
 
         # Write trends to MinIO
-        trend_uris = await self._write_trends_to_minio(
-            tenant_id, trace_id, all_trends
-        )
+        trend_uris = await self._write_trends_to_minio(tenant_id, trace_id, all_trends)
 
         # Build updated state - POINTER ONLY
         new_state: IntelligenceState = {
@@ -153,7 +143,7 @@ class TrendAnalyzerNode:
     ) -> list[TrendResult]:
         """Analyze pricing trends from PRICED_AT relationships."""
         query = """
-        SELECT 
+        SELECT
             c.name as company,
             p.name as product,
             r.price,
@@ -201,7 +191,7 @@ class TrendAnalyzerNode:
     ) -> list[TrendResult]:
         """Analyze hiring velocity trends from EMPLOYED_AT relationships."""
         query = """
-        SELECT 
+        SELECT
             c.name as company,
             COUNT(*) as hires,
             DATE_TRUNC('month', r.valid_from) as month
@@ -248,7 +238,7 @@ class TrendAnalyzerNode:
     ) -> list[TrendResult]:
         """Analyze mention frequency trends from MENTIONED_IN relationships."""
         query = """
-        SELECT 
+        SELECT
             c.name as company,
             COUNT(*) as mentions,
             DATE_TRUNC('week', r.valid_from) as week
@@ -294,7 +284,7 @@ class TrendAnalyzerNode:
     ) -> list[TrendResult]:
         """Analyze sentiment trends from earnings call analysis."""
         query = """
-        SELECT 
+        SELECT
             c.name as company,
             AVG(s.score) as avg_sentiment,
             DATE_TRUNC('month', r.valid_from) as month
@@ -348,7 +338,7 @@ class TrendAnalyzerNode:
         std = (sum((x - mean) ** 2 for x in historical) / len(historical)) ** 0.5
         if std == 0:
             return 0.0
-        return (recent - mean) / std
+        return float((recent - mean) / std)
 
     async def _compute_time_series_trends(
         self,
@@ -367,6 +357,7 @@ class TrendAnalyzerNode:
 
         # Group by entity
         from collections import defaultdict
+
         groups = defaultdict(list)
 
         for row in rows:
@@ -400,18 +391,21 @@ class TrendAnalyzerNode:
                 direction = "stable"
 
             # Try STL decomposition if enough points
-            stl_detected = False
+            _stl_detected = False
             if len(values) >= self.stl_min_points:
                 try:
                     stl_residual = self._stl_residual(values)
-                    if abs(stl_residual[-1]) > 2 * (sum(r**2 for r in stl_residual) / len(stl_residual)) ** 0.5:
+                    if (
+                        abs(stl_residual[-1])
+                        > 2 * (sum(r**2 for r in stl_residual) / len(stl_residual)) ** 0.5
+                    ):
                         direction = "anomalous"
-                        stl_detected = True
+                        _stl_detected = True
                 except Exception:
                     pass
 
             # Build entity name
-            entity_name = entity_template.format(**dict(zip(group_keys, key)))
+            entity_name = entity_template.format(**dict(zip(group_keys, key, strict=False)))
 
             # Build narrative via LLM (placeholder for now)
             narrative = await self._generate_trend_narrative(
@@ -454,7 +448,7 @@ class TrendAnalyzerNode:
             trend.append(sum(values[start:end]) / (end - start))
 
         # Residual = value - trend
-        residual = [v - t for v, t in zip(values, trend)]
+        residual = [v - t for v, t in zip(values, trend, strict=False)]
         return residual
 
     async def _generate_trend_narrative(
@@ -475,10 +469,7 @@ class TrendAnalyzerNode:
             "anomalous": "showing anomalous behavior",
         }.get(direction, "changing")
 
-        narrative = (
-            f"{entity_name} is {direction_text} in {trend_type}. "
-            f"Z-score: {z_score:.2f}. "
-        )
+        narrative = f"{entity_name} is {direction_text} in {trend_type}. Z-score: {z_score:.2f}. "
 
         if direction == "up":
             narrative += "This upward trend may indicate competitive pressure or market expansion."

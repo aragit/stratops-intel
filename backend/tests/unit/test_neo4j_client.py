@@ -28,9 +28,7 @@ class TestNeo4jClient:
         mock_driver = mock.MagicMock()
         mock_session = mock.MagicMock()
         mock_session.run = mock.AsyncMock()
-        mock_session.run.return_value.fetch_one = mock.AsyncMock(
-            return_value={"health": 1}
-        )
+        mock_session.run.return_value.fetch_one = mock.AsyncMock(return_value={"health": 1})
         mock_driver.session.return_value.__aenter__.return_value = mock_session
         neo4j_client._driver = mock_driver
         neo4j_client._initialized = True
@@ -81,9 +79,7 @@ class TestNeo4jClient:
         mock_driver = mock.MagicMock()
         mock_session = mock.MagicMock()
         mock_session.run = mock.AsyncMock()
-        mock_session.run.return_value.fetch = mock.AsyncMock(
-            return_value=[{"ok": True}]
-        )
+        mock_session.run.return_value.fetch = mock.AsyncMock(return_value=[{"ok": True}])
         mock_driver.session.return_value.__aenter__.return_value = mock_session
         neo4j_client._driver = mock_driver
         neo4j_client._initialized = True
@@ -108,12 +104,8 @@ class TestNeo4jClient:
 
         schema_content = "CREATE CONSTRAINT c1 IF NOT EXISTS FOR (n:Person) REQUIRE n.id IS UNIQUE; CREATE INDEX i1 IF NOT EXISTS FOR (n:Company) ON (n.tenant_id);"
 
-        with mock.patch(
-            "builtins.open", mock.mock_open(read_data=schema_content)
-        ):
-            with mock.patch(
-                "backend.db.neo4j_client.statement_single"
-            ) as mock_exec:
+        with mock.patch("builtins.open", mock.mock_open(read_data=schema_content)):
+            with mock.patch("backend.db.neo4j_client.statement_single") as mock_exec:
                 mock_exec.side_effect = mock.AsyncMock(return_value=None)
                 await neo4j_client.init_schema()
 
@@ -132,11 +124,11 @@ class TestNeo4jClient:
     async def test_run_without_init_fails(self, neo4j_client: Neo4jClient) -> None:
         """Test that running a query without initialization raises an error."""
         # neo4j_client is not initialized
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             await neo4j_client.run("RETURN 1")
 
     @pytest.mark.asyncio
     async def test_health_without_init_fails(self, neo4j_client: Neo4jClient) -> None:
         """Test that health check without initialization raises an error."""
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             await neo4j_client.health()

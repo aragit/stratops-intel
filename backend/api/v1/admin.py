@@ -18,10 +18,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from backend.billing.cost_tracker import CostTracker
-from backend.security.encryption import FieldEncryptor
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
+
+from backend.billing.cost_tracker import CostTracker
+from backend.security.encryption import FieldEncryptor
 
 router = APIRouter(prefix="/v1/admin", tags=["admin"])
 
@@ -159,9 +160,7 @@ async def system_health(
         health_checks["minio"] = {"status": "unhealthy", "detail": str(e)}
 
     # Determine overall status
-    all_healthy = all(
-        h.get("status") == "healthy" for h in health_checks.values()
-    )
+    all_healthy = all(h.get("status") == "healthy" for h in health_checks.values())
     overall = "healthy" if all_healthy else "degraded"
 
     return JSONResponse(

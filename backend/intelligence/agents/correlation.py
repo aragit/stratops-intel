@@ -26,7 +26,9 @@ class CorrelationResult(BaseModel):
     entity_a: dict[str, Any] = Field(..., description="First entity: type, id, name")
     entity_b: dict[str, Any] = Field(..., description="Second entity: type, id, name")
     strength: float = Field(..., ge=0.0, le=1.0, description="Correlation strength 0.0-1.0")
-    evidence: list[str] = Field(default_factory=list, description="Signal URIs supporting this correlation")
+    evidence: list[str] = Field(
+        default_factory=list, description="Signal URIs supporting this correlation"
+    )
     valid_from: datetime = Field(..., description="Correlation start timestamp")
     valid_to: datetime | None = Field(None, description="Correlation end timestamp")
 
@@ -246,8 +248,16 @@ class CorrelationEngineNode:
             for row in results:
                 corr = CorrelationResult(
                     correlation_type="talent",
-                    entity_a={"type": "Company", "id": row["company_from"], "name": row["company_from"]},
-                    entity_b={"type": "Company", "id": row["company_to"], "name": row["company_to"]},
+                    entity_a={
+                        "type": "Company",
+                        "id": row["company_from"],
+                        "name": row["company_from"],
+                    },
+                    entity_b={
+                        "type": "Company",
+                        "id": row["company_to"],
+                        "name": row["company_to"],
+                    },
                     strength=0.8,  # Talent flow is strong signal
                     evidence=[],
                     valid_from=datetime.fromisoformat(row["joined_date"]),

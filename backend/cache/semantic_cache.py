@@ -41,7 +41,7 @@ class SemanticCache:
     On `set()`, the prompt + response are embedded and stored with a TTL.
     """
 
-    def __init__(self, redis, model_name: str = "all-MiniLM-L6-v2") -> None:
+    def __init__(self, redis: Any, model_name: str = "all-MiniLM-L6-v2") -> None:
         """Initialize the semantic cache.
 
         Args:
@@ -50,10 +50,10 @@ class SemanticCache:
         """
         self._redis = redis
         self._model_name = model_name
-        self._model = None  # lazily loaded
+        self._model: Any | None = None  # lazily loaded
 
     @property
-    def model(self):
+    def model(self) -> Any:
         from sentence_transformers import SentenceTransformer
 
         if self._model is None:
@@ -110,7 +110,8 @@ class SemanticCache:
                 similarity=round(similarity, 4),
                 threshold=threshold,
             )
-            return stored_data.get("response")
+            response: dict[str, Any] | None = stored_data.get("response")
+            return response
 
         logger.debug(
             "cache_similarity_too_low",
@@ -164,14 +165,14 @@ class SemanticCache:
         if not a or not b or len(a) != len(b):
             return 0.0
 
-        dot = sum(x * y for x, y in zip(a, b))
+        dot = sum(x * y for x, y in zip(a, b, strict=False))
         norm_a = sum(x * x for x in a) ** 0.5
         norm_b = sum(x * x for x in b) ** 0.5
 
         if norm_a == 0.0 or norm_b == 0.0:
             return 0.0
 
-        return dot / (norm_a * norm_b)
+        return float(dot / (norm_a * norm_b))
 
 
 __all__ = ["SemanticCache", "DEFAULT_TTL", "SIMILARITY_THRESHOLD"]

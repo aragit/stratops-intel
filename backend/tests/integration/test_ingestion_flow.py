@@ -75,9 +75,11 @@ class MockPlaywright:
 
     async def chromium(self):
         html = self._html
+
         class Chromium:
             async def launch(self, headless: bool = True):
                 return MockBrowser(html)
+
         return Chromium()
 
 
@@ -86,10 +88,10 @@ class MockS3Client:
     def __init__(self):
         self.objects: dict[str, bytes] = {}
 
-    async def put_object(self, Bucket: str, Key: str, Body: bytes, **kwargs):
+    async def put_object(self, Bucket: str, Key: str, Body: bytes, **kwargs):  # noqa: N803
         self.objects[f"{Bucket}/{Key}"] = Body
 
-    async def get_object(self, Bucket: str, Key: str):
+    async def get_object(self, Bucket: str, Key: str):  # noqa: N803
         key = f"{Bucket}/{Key}"
         if key in self.objects:
             return {"Body": type("obj", (object,), {"read": lambda: self.objects[key]})()}
@@ -118,7 +120,8 @@ async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
     # Run migrations directly via SQL to avoid alembic import issues
     async with engine.begin() as conn:
         # Create signals table if not exists (migration 002)
-        await conn.execute(text("""
+        await conn.execute(
+            text("""
             CREATE TABLE IF NOT EXISTS signals (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
                 tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -131,27 +134,37 @@ async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
                 meta JSON NOT NULL DEFAULT '{}',
                 created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
             );
-        """))
+        """)
+        )
         # Create unique constraint
-        await conn.execute(text("""
+        await conn.execute(
+            text("""
             DO $$ BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM pg_constraint WHERE conname = 'uq_signals_tenant_fingerprint'
                 ) THEN
-                    ALTER TABLE signals ADD CONSTRAINT uq_signals_tenant_fingerprint 
+                    ALTER TABLE signals ADD CONSTRAINT uq_signals_tenant_fingerprint
                     UNIQUE (tenant_id, fingerprint);
                 END IF;
             END $$;
-        """))
+        """)
+        )
         # Create indexes
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_signals_tenant_id ON signals (tenant_id);"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_signals_source_type ON signals (source_type);"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_signals_collected_at ON signals (collected_at);"))
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_signals_tenant_id ON signals (tenant_id);")
+        )
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_signals_source_type ON signals (source_type);")
+        )
+        await conn.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_signals_collected_at ON signals (collected_at);")
+        )
         # Enable RLS
         await conn.execute(text("ALTER TABLE signals ENABLE ROW LEVEL SECURITY;"))
         await conn.execute(text("ALTER TABLE signals FORCE ROW LEVEL SECURITY;"))
         # Create RLS policy
-        await conn.execute(text("""
+        await conn.execute(
+            text("""
             DO $$ BEGIN
                 IF NOT EXISTS (
                     SELECT 1 FROM pg_policies WHERE policyname = 'tenant_isolation' AND tablename = 'signals'
@@ -161,7 +174,8 @@ async def test_engine() -> AsyncGenerator[AsyncEngine, None]:
                     USING (tenant_id = current_setting('app.current_tenant')::UUID);
                 END IF;
             END $$;
-        """))
+        """)
+        )
 
     yield engine
     await engine.dispose()
@@ -194,7 +208,9 @@ async def test_tenant(session_factory) -> dict[str, Any]:
     # Cleanup
     async with session_factory() as session:
         try:
-            await session.execute(text("DELETE FROM signals WHERE tenant_id = :tid"), {"tid": str(tenant_id)})
+            await session.execute(
+                text("DELETE FROM signals WHERE tenant_id = :tid"), {"tid": str(tenant_id)}
+            )
         except Exception:
             pass  # Table may not exist
         await session.execute(text("DELETE FROM tenants WHERE id = :tid"), {"tid": str(tenant_id)})
@@ -211,7 +227,9 @@ async def test_redis() -> AsyncGenerator[aioredis.Redis, None]:
 
 
 @pytest.fixture
-async def ingestion_worker(test_redis: aioredis.Redis, test_tenant: dict) -> AsyncGenerator[IngestionWorker, None]:
+async def ingestion_worker(
+    test_redis: aioredis.Redis, test_tenant: dict
+) -> AsyncGenerator[IngestionWorker, None]:
     """Create ingestion worker with mocked dependencies."""
     worker = IngestionWorker(
         redis_url="redis://localhost:6379/0",
@@ -246,7 +264,9 @@ async def ingestion_worker(test_redis: aioredis.Redis, test_tenant: dict) -> Asy
                 )
                 yield session
 
-    worker._session_manager = MockSessionManager(async_sessionmaker(bind=test_redis, class_=AsyncSession, expire_on_commit=False))
+    worker._session_manager = MockSessionManager(
+        async_sessionmaker(bind=test_redis, class_=AsyncSession, expire_on_commit=False)
+    )
 
     yield worker
     await worker.stop()
@@ -307,11 +327,13 @@ class TestWebCrawlToSignal:
             "tenant_id": str(tenant_id),
             "source_type": "web",
             "adapter_name": "web_monitor",
-            "config": json.dumps({
-                "urls": ["https://acme.com"],
-                "check_interval_seconds": 3600,
-                "user_agent": "TestAgent/1.0",
-            }),
+            "config": json.dumps(
+                {
+                    "urls": ["https://acme.com"],
+                    "check_interval_seconds": 3600,
+                    "user_agent": "TestAgent/1.0",
+                }
+            ),
             "trace_id": "test-trace-123",
         }
 
@@ -381,17 +403,19 @@ class TestWebCrawlToSignal:
 
         # Mock feedparser response
         mock_data = {
-            "entries": [{
-                "form_type": "10-K",
-                "entry": {
-                    "title": "Apple Inc. (0000320193) - 10-K - 0000320193-24-000010",
-                    "link": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000010/index.html",
-                    "updated": "2024-10-30T00:00:00Z",
+            "entries": [
+                {
+                    "form_type": "10-K",
+                    "entry": {
+                        "title": "Apple Inc. (0000320193) - 10-K - 0000320193-24-000010",
+                        "link": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000010/index.html",
+                        "updated": "2024-10-30T00:00:00Z",
+                        "cik": "0000320193",
+                    },
                     "cik": "0000320193",
-                },
-                "cik": "0000320193",
-                "filing_date": "2024-10-30",
-            }],
+                    "filing_date": "2024-10-30",
+                }
+            ],
             "cursors": {"10-K": "100"},
         }
         raw_data = json.dumps(mock_data).encode("utf-8")
@@ -474,6 +498,7 @@ class TestWebCrawlToSignal:
     ):
         """Test RLS prevents cross-tenant signal access."""
         import pytest
+
         pytest.skip("RLS isolation tested in test_tenant_isolation.py")
 
 

@@ -57,9 +57,7 @@ class StreamKeyBuilder:
             ValueError: If *tenant_id* is not a :class:`UUID`.
         """
         if not isinstance(tenant_id, UUID):
-            raise ValueError(
-                f"tenant_id must be a UUID, got {type(tenant_id).__name__}"
-            )
+            raise ValueError(f"tenant_id must be a UUID, got {type(tenant_id).__name__}")
 
     def signal_stream(self, tenant_id: UUID) -> str:
         """Return the signal stream key for a tenant.

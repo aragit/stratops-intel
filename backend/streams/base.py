@@ -59,7 +59,7 @@ async def _with_redis_retry(
             return await operation(*args, **kwargs)
         except RedisConnectionError as exc:
             last_exc = exc
-            delay = _BASE_DELAY_SECONDS * (2 ** attempt)
+            delay = _BASE_DELAY_SECONDS * (2**attempt)
             logger.warning(
                 "redis_retry",
                 attempt=attempt + 1,
@@ -73,7 +73,7 @@ async def _with_redis_retry(
     raise RuntimeError("Unexpected retry exhaustion without exception")
 
 
-class StreamProducer(ABC):
+class StreamProducer(ABC):  # noqa: B024
     """Abstract base class for Redis Streams producers.
 
     Subclasses should set a meaningful ``stream_name`` and may override
@@ -125,9 +125,7 @@ class StreamProducer(ABC):
 
         return envelope
 
-    async def publish(
-        self, message: dict[str, Any], metadata: dict[str, Any] | None = None
-    ) -> str:
+    async def publish(self, message: dict[str, Any], metadata: dict[str, Any] | None = None) -> str:
         """Publish a single message to the Redis stream.
 
         The message is serialized to JSON and stored with ``trace_id`` and
@@ -150,16 +148,19 @@ class StreamProducer(ABC):
         start = time.monotonic()
 
         async def _do_publish() -> bytes:
-            return await self._redis.xadd(
+            message_id: bytes = await self._redis.xadd(
                 name=self._stream_name,
                 fields={"data": serialized},
                 id="*",
                 approximate=False,
             )
+            return message_id
 
         message_id_bytes = await _with_redis_retry(_do_publish)
-        message_id = message_id_bytes.decode() if isinstance(message_id_bytes, bytes) else str(
-            message_id_bytes
+        message_id = (
+            message_id_bytes.decode()
+            if isinstance(message_id_bytes, bytes)
+            else str(message_id_bytes)
         )
 
         elapsed_ms = round((time.monotonic() - start) * 1000, 2)
@@ -370,11 +371,13 @@ class StreamConsumer(ABC):
                 continue
 
             for stream_result in messages:
-                stream_name_bytes = stream_result[0]
+                _stream_name_bytes = stream_result[0]
                 msg_list = stream_result[1]
 
                 for raw_msg_id, raw_fields in msg_list:
-                    msg_id = raw_msg_id.decode() if isinstance(raw_msg_id, bytes) else str(raw_msg_id)
+                    msg_id = (
+                        raw_msg_id.decode() if isinstance(raw_msg_id, bytes) else str(raw_msg_id)
+                    )
                     data_field = raw_fields.get(b"data", raw_fields.get("data", b""))
 
                     if isinstance(data_field, bytes):
@@ -405,7 +408,9 @@ class StreamConsumer(ABC):
                     elapsed_ms = round((time.monotonic() - start) * 1000, 2)
 
                     if success:
-                        await _with_redis_retry(self._redis.xack, self._stream_name, self._consumer_group, msg_id)
+                        await _with_redis_retry(
+                            self._redis.xack, self._stream_name, self._consumer_group, msg_id
+                        )
                         logger.info(
                             "message_processed",
                             stream_name=self._stream_name,
@@ -516,6 +521,7 @@ class StreamConsumer(ABC):
         Returns:
             A list of ``(message_id, message)`` tuples that were claimed.
         """
+
         async def _do_claim() -> Any:
             return await self._redis.xautoclaim(
                 name=self._stream_name,

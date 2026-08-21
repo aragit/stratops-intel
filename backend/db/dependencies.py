@@ -15,6 +15,7 @@ from uuid import UUID
 import structlog
 from fastapi import Header, HTTPException, Request, status
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.db.models import APIKey, Tenant
 from backend.db.tenant_session import get_session_manager
@@ -143,7 +144,7 @@ async def get_db(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid tenant ID format",
-            )
+            ) from exc
 
         try:
             async with manager.admin_session() as session:

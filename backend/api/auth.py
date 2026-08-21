@@ -47,9 +47,7 @@ def create_access_token(
         The encoded JWT string.
     """
     to_encode = dict(data)
-    expire = datetime.now(UTC) + (
-        expires_delta or timedelta(minutes=_ACCESS_TOKEN_EXPIRE_MINUTES)
-    )
+    expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=_ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire, "iat": datetime.now(UTC), "type": "access"})
     token = jwt.encode(to_encode, _SECRET_KEY, algorithm=_ALGORITHM)
     logger.debug("access_token_created", sub=data.get("sub"), expires=expire.isoformat())
@@ -94,14 +92,14 @@ def decode_token(token: str) -> dict:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token has expired",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from None
     except jwt.InvalidTokenError as exc:
         logger.warning("invalid_token", error=str(exc))
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
-        )
+        ) from exc
 
 
 def hash_password(password: str) -> str:
@@ -166,7 +164,7 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid subject claim",
-        )
+        ) from None
 
     manager = get_session_manager()
     try:
@@ -179,7 +177,7 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database error during user lookup",
-        )
+        ) from exc
 
     if user is None:
         raise HTTPException(

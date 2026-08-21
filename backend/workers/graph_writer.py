@@ -135,9 +135,7 @@ class MicroBatchBuffer:
 
         for raw in [*raw_items, *self._buffer]:
             try:
-                update_dict = (
-                    json.loads(raw) if isinstance(raw, (str, bytes, bytearray)) else raw
-                )
+                update_dict = json.loads(raw) if isinstance(raw, (str, bytes, bytearray)) else raw
                 if not isinstance(update_dict, dict) or "entity_id" not in update_dict:
                     raise KeyError("entity_id")
             except (json.JSONDecodeError, KeyError) as e:

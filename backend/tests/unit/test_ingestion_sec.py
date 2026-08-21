@@ -98,17 +98,19 @@ class TestSECFilingAdapter:
 
         # Create serializable mock data
         mock_data = {
-            "entries": [{
-                "form_type": "10-K",
-                "entry": {
-                    "title": "Apple Inc. (0000320193) - 10-K - 0000320193-24-000010",
-                    "link": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000010/index.html",
-                    "updated": "2024-10-30T00:00:00Z",
+            "entries": [
+                {
+                    "form_type": "10-K",
+                    "entry": {
+                        "title": "Apple Inc. (0000320193) - 10-K - 0000320193-24-000010",
+                        "link": "https://www.sec.gov/Archives/edgar/data/320193/000032019324000010/index.html",
+                        "updated": "2024-10-30T00:00:00Z",
+                        "cik": "0000320193",
+                    },
                     "cik": "0000320193",
-                },
-                "cik": "0000320193",
-                "filing_date": "2024-10-30",
-            }],
+                    "filing_date": "2024-10-30",
+                }
+            ],
             "cursors": {"10-K": "100"},
         }
         raw_data = json.dumps(mock_data).encode("utf-8")
@@ -129,11 +131,13 @@ class TestSECFilingAdapter:
         signal = RawSignal(
             source_type="sec",
             source_url="https://sec.gov/filing",
-            raw_content=json.dumps({
-                "accession_number": "0000320193-24-000010",
-                "form_type": "10-K",
-                "filing_date": "2024-10-30",
-            }).encode("utf-8"),
+            raw_content=json.dumps(
+                {
+                    "accession_number": "0000320193-24-000010",
+                    "form_type": "10-K",
+                    "filing_date": "2024-10-30",
+                }
+            ).encode("utf-8"),
             collected_at=date(2024, 10, 30),
             metadata={
                 "accession_number": "0000320193-24-000010",
@@ -154,12 +158,20 @@ class TestSECFilingAdapter:
         signal1 = RawSignal(
             source_type="sec",
             raw_content=b"{}",
-            metadata={"accession_number": "0000320193-24-000010", "form_type": "10-K", "filing_date": "2024-10-30"},
+            metadata={
+                "accession_number": "0000320193-24-000010",
+                "form_type": "10-K",
+                "filing_date": "2024-10-30",
+            },
         )
         signal2 = RawSignal(
             source_type="sec",
             raw_content=b"{}",
-            metadata={"accession_number": "0000320193-24-000011", "form_type": "10-K", "filing_date": "2024-10-30"},
+            metadata={
+                "accession_number": "0000320193-24-000011",
+                "form_type": "10-K",
+                "filing_date": "2024-10-30",
+            },
         )
 
         fp1 = await adapter.fingerprint(signal1)
@@ -171,6 +183,7 @@ class TestSECFilingAdapter:
     async def test_normalize_creates_pointers(self, adapter):
         """Test normalize creates NormalizedSignal with S3 pointers."""
         import pytest
+
         pytest.skip("Requires aiobotocore which has OpenSSL conflict in test env")
 
     @pytest.mark.asyncio
@@ -194,4 +207,5 @@ class TestSECFilingAdapter:
     async def test_close_cleans_up(self, adapter):
         """Test close method cleans up browser resources."""
         import pytest
+
         pytest.skip("Requires aiobotocore which has OpenSSL conflict in test env")

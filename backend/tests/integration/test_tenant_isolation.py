@@ -129,9 +129,7 @@ class TestAPIKeyScoping:
             bind=integration_engine, class_=AsyncSession, expire_on_commit=False
         )
         async with session_factory() as session:
-            result = await session.execute(
-                select(APIKey).where(APIKey.key_hash == key_hash)
-            )
+            result = await session.execute(select(APIKey).where(APIKey.key_hash == key_hash))
             db_key = result.scalar_one_or_none()
 
             assert db_key is not None

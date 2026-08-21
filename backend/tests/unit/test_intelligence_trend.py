@@ -104,9 +104,7 @@ class TestTrendAnalyzerNode:
         }
 
     @pytest.mark.asyncio
-    async def test_empty_content_uris_returns_same_state(
-        self, trend_analyzer
-    ) -> None:
+    async def test_empty_content_uris_returns_same_state(self, trend_analyzer) -> None:
         """Empty content_uris returns unchanged state."""
         state = {
             "tenant_id": "001",
@@ -118,9 +116,7 @@ class TestTrendAnalyzerNode:
         assert result is state
 
     @pytest.mark.asyncio
-    async def test_pricing_trend_query_construction(
-        self, trend_analyzer, mock_db_pool
-    ) -> None:
+    async def test_pricing_trend_query_construction(self, trend_analyzer, mock_db_pool) -> None:
         """Test pricing trend query is constructed correctly."""
         tenant_id = "00000000-0000-0000-0000-000000000001"
         window_start = datetime.utcnow() - timedelta(days=90)
@@ -147,9 +143,7 @@ class TestTrendAnalyzerNode:
             },
         ]
 
-        trends = await trend_analyzer._analyze_pricing_trends(
-            tenant_id, window_start, window_end
-        )
+        trends = await trend_analyzer._analyze_pricing_trends(tenant_id, window_start, window_end)
 
         mock_db_pool.fetch.assert_called_once()
         call_args = mock_db_pool.fetch.call_args
@@ -173,9 +167,7 @@ class TestTrendAnalyzerNode:
             {"company": "Company A", "hires": 12, "month": datetime(2024, 3, 1)},
         ]
 
-        trends = await trend_analyzer._analyze_hiring_trends(
-            tenant_id, window_start, window_end
-        )
+        trends = await trend_analyzer._analyze_hiring_trends(tenant_id, window_start, window_end)
 
         mock_db_pool.fetch.assert_called_once()
         assert len(trends) > 0
@@ -194,9 +186,7 @@ class TestTrendAnalyzerNode:
             {"company": "Company A", "mentions": 25, "week": datetime(2024, 1, 15)},
         ]
 
-        trends = await trend_analyzer._analyze_mention_trends(
-            tenant_id, window_start, window_end
-        )
+        trends = await trend_analyzer._analyze_mention_trends(tenant_id, window_start, window_end)
 
         mock_db_pool.fetch.assert_called_once()
         assert trends[0].trend_type == "mention_frequency"
@@ -298,9 +288,7 @@ class TestTrendAnalyzerNode:
             )
         ]
 
-        uris = await trend_analyzer._write_trends_to_minio(
-            tenant_id, trace_id, trends
-        )
+        uris = await trend_analyzer._write_trends_to_minio(tenant_id, trace_id, trends)
 
         assert len(uris) == 1
         assert uris[0].startswith("s3://stratops-trends-")
@@ -337,8 +325,18 @@ class TestTrendAnalyzerNode:
             # Pricing (3 checkpoints required for trend detection)
             [
                 {"company": "A", "product": "X", "price": "100", "valid_from": datetime.utcnow()},
-                {"company": "A", "product": "X", "price": "110", "valid_from": datetime.utcnow() + timedelta(days=1)},
-                {"company": "A", "product": "X", "price": "125", "valid_from": datetime.utcnow() + timedelta(days=2)},
+                {
+                    "company": "A",
+                    "product": "X",
+                    "price": "110",
+                    "valid_from": datetime.utcnow() + timedelta(days=1),
+                },
+                {
+                    "company": "A",
+                    "product": "X",
+                    "price": "125",
+                    "valid_from": datetime.utcnow() + timedelta(days=2),
+                },
             ],
             # Hiring
             [],
@@ -368,8 +366,18 @@ class TestTrendAnalyzerNode:
 
         # Mock many trends
         mock_db_pool.fetch.side_effect = [
-            [{"company": f"C{i}", "product": "X", "price": "100", "valid_from": datetime.utcnow()} for i in range(20)],
-            [], [], [],
+            [
+                {
+                    "company": f"C{i}",
+                    "product": "X",
+                    "price": "100",
+                    "valid_from": datetime.utcnow(),
+                }
+                for i in range(20)
+            ],
+            [],
+            [],
+            [],
         ]
 
         result = await trend_analyzer(state)

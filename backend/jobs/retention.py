@@ -11,7 +11,7 @@ All retention operations are tenant-scoped and async-aware.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 import structlog
 
@@ -67,7 +67,7 @@ class RetentionEngine:
         now = datetime.now(UTC)
         return now - timedelta(days=retention_days)
 
-    async def purge_expired_data(self, retention_days: Optional[int] = None) -> dict[str, int]:
+    async def purge_expired_data(self, retention_days: int | None = None) -> dict[str, int]:
         """Purge signals and intelligence chunks older than the retention threshold.
 
         The default retention period is determined by the tenant's tier:
@@ -93,8 +93,7 @@ class RetentionEngine:
 
         # Purge expired signals
         purge_signal_sql = (
-            f"DELETE FROM {signal_table} "
-            f"WHERE created_at < :cutoff AND tenant_id = :tenant_id"
+            f"DELETE FROM {signal_table} WHERE created_at < :cutoff AND tenant_id = :tenant_id"
         )
         signal_result = await self._postgres.execute(
             purge_signal_sql, {"cutoff": cutoff, "tenant_id": self._tenant_id}
@@ -105,8 +104,7 @@ class RetentionEngine:
 
         # Purge expired intelligence chunks
         purge_chunk_sql = (
-            f"DELETE FROM {chunk_table} "
-            f"WHERE created_at < :cutoff AND tenant_id = :tenant_id"
+            f"DELETE FROM {chunk_table} WHERE created_at < :cutoff AND tenant_id = :tenant_id"
         )
         chunk_result = await self._postgres.execute(
             purge_chunk_sql, {"cutoff": cutoff, "tenant_id": self._tenant_id}
@@ -138,9 +136,7 @@ class RetentionEngine:
         try:
             import aioredis
 
-            redis = aioredis.from_url(
-                "redis://localhost:6379/0", decode_responses=True
-            )
+            redis = aioredis.from_url("redis://localhost:6379/0", decode_responses=True)
             tier = await redis.get(f"billing:tenant:{self._tenant_id}:tier")
             if tier is None:
                 return "free"

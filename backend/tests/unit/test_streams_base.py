@@ -32,7 +32,9 @@ class ConcreteConsumer(StreamConsumer):
 
     processed_messages: list[tuple[str, dict]]
 
-    def __init__(self, redis: Any, stream_name: str, consumer_group: str, consumer_name: str) -> None:
+    def __init__(
+        self, redis: Any, stream_name: str, consumer_group: str, consumer_name: str
+    ) -> None:
         super().__init__(redis, stream_name, consumer_group, consumer_name)
         self.processed_messages = []
 
@@ -191,9 +193,7 @@ class TestStreamProducerPublishBatch:
         mock_redis.pipeline = MagicMock(return_value=mock_pipe)
         producer = ConcreteProducer(mock_redis, "test:stream")
 
-        ids = await producer.publish_batch(
-            [{"event": "a"}, {"event": "b"}, {"event": "c"}]
-        )
+        ids = await producer.publish_batch([{"event": "a"}, {"event": "b"}, {"event": "c"}])
 
         assert len(ids) == 3
         assert ids == ["1-0", "2-0", "3-0"]
@@ -224,9 +224,7 @@ class TestStreamConsumerInit:
     def test_init_stores_attributes(self) -> None:
         """Consumer should store all init parameters."""
         mock_redis = MagicMock()
-        consumer = ConcreteConsumer(
-            mock_redis, "test:stream", "cg:test", "consumer-1"
-        )
+        consumer = ConcreteConsumer(mock_redis, "test:stream", "cg:test", "consumer-1")
         assert consumer._redis is mock_redis
         assert consumer._stream_name == "test:stream"
         assert consumer._consumer_group == "cg:test"
@@ -424,7 +422,7 @@ class TestStreamConsumerConsumeLoop:
 
         mock_redis.xreadgroup = mock_xreadgroup
 
-        with patch("streams.base.logger") as mock_logger:
+        with patch("streams.base.logger") as _mock_logger:
             consumer = ConcreteConsumer(mock_redis, "stream", "cg", "c1")
             await consumer.start()
             await asyncio.sleep(0.3)
@@ -548,9 +546,7 @@ class TestClaimPending:
         mock_redis = AsyncMock()
         msg_id = b"123-0"
         msg_data = json.dumps({"event": "test", "trace_id": "abc"}).encode()
-        mock_redis.xautoclaim = AsyncMock(
-            return_value=[(msg_id, {b"data": msg_data})]
-        )
+        mock_redis.xautoclaim = AsyncMock(return_value=[(msg_id, {b"data": msg_data})])
 
         consumer = ConcreteConsumer(mock_redis, "stream", "cg", "c1")
         claimed = await consumer.claim_pending(min_idle_ms=60000)

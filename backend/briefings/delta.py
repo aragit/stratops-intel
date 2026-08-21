@@ -47,8 +47,12 @@ class BriefingDelta(BaseModel):
     briefing_id: str = Field(..., description="Briefing identifier")
     tenant_id: str = Field(..., description="Tenant identifier")
     delta_type: str = Field(..., description="Type: append, replace_section, full_regeneration")
-    sections_added: list[dict[str, Any]] = Field(default_factory=list, description="New sections to add")
-    sections_updated: list[dict[str, Any]] = Field(default_factory=list, description="Existing sections to update")
+    sections_added: list[dict[str, Any]] = Field(
+        default_factory=list, description="New sections to add"
+    )
+    sections_updated: list[dict[str, Any]] = Field(
+        default_factory=list, description="Existing sections to update"
+    )
     sections_removed: list[str] = Field(default_factory=list, description="Section titles removed")
     summary: str = Field(..., description="LLM-generated summary of changes")
     generated_at: datetime = Field(default_factory=datetime.utcnow)
@@ -286,9 +290,13 @@ class BriefingDeltaGenerator:
         lines = ["## Competitive Correlations", ""]
         for corr in correlations[:10]:
             entity_a = corr.get("entity_a", {})
-            entity_a_name = entity_a.get("name", "Unknown") if isinstance(entity_a, dict) else str(entity_a)
+            entity_a_name = (
+                entity_a.get("name", "Unknown") if isinstance(entity_a, dict) else str(entity_a)
+            )
             entity_b = corr.get("entity_b", {})
-            entity_b_name = entity_b.get("name", "Unknown") if isinstance(entity_b, dict) else str(entity_b)
+            entity_b_name = (
+                entity_b.get("name", "Unknown") if isinstance(entity_b, dict) else str(entity_b)
+            )
             strength = BriefingDeltaGenerator._coerce_float(corr.get("strength"), 0.0)
             lines.append(
                 f"- **{entity_a_name}** ↔ **{entity_b_name}** "
@@ -390,7 +398,10 @@ class BriefingDeltaGenerator:
 
         sections_added = [self._section_dict(new_by_type[t]) for t in sorted(added_types)]
         sections_updated: list[dict[str, Any]] = []
-        sections_removed = [str(current_by_type[t].title) if hasattr(current_by_type[t], "title") else str(t) for t in sorted(removed_types)]
+        sections_removed = [
+            str(current_by_type[t].title) if hasattr(current_by_type[t], "title") else str(t)
+            for t in sorted(removed_types)
+        ]
 
         for sec_type in common_types:
             current_content = _section_attr(current_by_type[sec_type], "content", "")
@@ -420,7 +431,9 @@ class BriefingDeltaGenerator:
         else:
             return None
 
-        summary = self._generate_summary(delta_type, sections_added, sections_updated, sections_removed)
+        summary = self._generate_summary(
+            delta_type, sections_added, sections_updated, sections_removed
+        )
 
         return {
             "type": delta_type,
@@ -522,7 +535,7 @@ class BriefingDeltaGenerator:
             data=json_data.encode("utf-8"),
             content_type="application/json",
         )
-        return uri
+        return str(uri)
 
 
 class BriefingDeltaWorker:

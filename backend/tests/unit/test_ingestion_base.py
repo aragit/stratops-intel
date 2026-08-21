@@ -38,12 +38,14 @@ class DummyAdapter(SourceAdapter):
         return "abc123"
 
     async def normalize(self, signals: list[RawSignal]) -> list[NormalizedSignal]:
-        return [NormalizedSignal(
-            source_type="test",
-            source_url="http://test",
-            content_uri="s3://bucket/key",
-            fingerprint="abc123",
-        )]
+        return [
+            NormalizedSignal(
+                source_type="test",
+                source_url="http://test",
+                content_uri="s3://bucket/key",
+                fingerprint="abc123",
+            )
+        ]
 
 
 class TestAdapterRegistry:
@@ -78,6 +80,7 @@ class TestAdapterRegistry:
         AdapterRegistry.clear()
         from ingestion.adapters.sec import SECFilingAdapter  # noqa: F401
         from ingestion.adapters.web import WebMonitorAdapter  # noqa: F401
+
         AdapterRegistry.register(SECFilingAdapter)
         AdapterRegistry.register(WebMonitorAdapter)
         assert "web_monitor" in AdapterRegistry.list_adapters()
@@ -110,7 +113,7 @@ class TestRawSignal:
 
     def test_frozen_model(self):
         signal = RawSignal(source_type="web", raw_content=b"test")
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             signal.source_type = "sec"
 
 
@@ -118,7 +121,7 @@ class TestNormalizedSignal:
     """Tests for NormalizedSignal Pydantic model."""
 
     def test_content_uri_required(self):
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             NormalizedSignal(
                 source_type="web",
                 fingerprint="abc123",
@@ -126,7 +129,7 @@ class TestNormalizedSignal:
             )
 
     def test_fingerprint_required(self):
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             NormalizedSignal(
                 source_type="web",
                 content_uri="s3://bucket/key",
@@ -187,6 +190,7 @@ class TestRegisterDecorator:
 
             class Config(BaseModel):
                 pass
+
             config_schema = Config
 
             async def fetch(self, config, cursor=None):

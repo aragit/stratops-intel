@@ -28,7 +28,9 @@ class AnomalyResult(BaseModel):
 
     entity_type: str = Field(..., description="Entity type: Company, Product")
     entity_name: str = Field(..., description="Entity identifier")
-    anomaly_score: float = Field(..., description="Isolation Forest anomaly score (negative = more anomalous)")
+    anomaly_score: float = Field(
+        ..., description="Isolation Forest anomaly score (negative = more anomalous)"
+    )
     features: dict[str, float] = Field(..., description="Feature values that triggered anomaly")
     severity: str = Field(..., description="Severity: low, medium, high")
     recommended_action: str | None = Field(None, description="LLM-generated recommendation")
@@ -158,10 +160,11 @@ class AnomalyDetectorNode:
         """Ensure IsolationForest model is trained and up to date."""
         now = datetime.utcnow()
 
-        if (self._model is None or
-            self._last_trained is None or
-            (now - self._last_trained).total_seconds() > self.retrain_interval_hours * 3600):
-
+        if (
+            self._model is None
+            or self._last_trained is None
+            or (now - self._last_trained).total_seconds() > self.retrain_interval_hours * 3600
+        ):
             await self._train_model(tenant_id)
 
     async def _train_model(self, tenant_id: str) -> None:
@@ -185,7 +188,7 @@ class AnomalyDetectorNode:
             return
 
         # Prepare feature matrix
-        X = np.array([list(f.values()) for f in training_features])
+        X = np.array([list(f.values()) for f in training_features])  # noqa: N806
 
         # Train IsolationForest
         self._model = IsolationForest(
@@ -238,7 +241,7 @@ class AnomalyDetectorNode:
         for entity_name, features in entity_features.items():
             # Ensure feature order matches training
             feature_vector = [features.get(name, 0.0) for name in self._feature_names]
-            X = np.array([feature_vector])
+            X = np.array([feature_vector])  # noqa: N806
 
             # Get anomaly score (lower = more anomalous)
             score = self._model.decision_function(X)[0]
@@ -294,7 +297,8 @@ class AnomalyDetectorNode:
 
             if response.status_code == 200:
                 data = response.json()
-                return data[0]["summaries"][0] if data[0]["summaries"] else None
+                if data[0]["summaries"]:
+                    return str(data[0]["summaries"][0])
 
         except Exception as e:
             structlog.get_logger().error(
@@ -303,8 +307,10 @@ class AnomalyDetectorNode:
                 entity=anomaly.entity_name,
             )
 
-        return f"Investigate {anomaly.entity_name} anomaly (score: {anomaly.anomaly_score:.4f}). " \
-               f"Key features: {', '.join(f'{k}={v:.2f}' for k, v in anomaly.features.items())}"
+        return (
+            f"Investigate {anomaly.entity_name} anomaly (score: {anomaly.anomaly_score:.4f}). "
+            f"Key features: {', '.join(f'{k}={v:.2f}' for k, v in anomaly.features.items())}"
+        )
 
     async def _write_anomalies_to_minio(
         self,

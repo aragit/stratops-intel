@@ -36,7 +36,7 @@ def _make_mock_redis():
         lst = store.get(key, [])
         if end == -1:
             return list(lst[start:])
-        return list(lst[start:end + 1])
+        return list(lst[start : end + 1])
 
     m.lrange = mock.AsyncMock(side_effect=_lrange)
 
@@ -215,9 +215,7 @@ class TestMicroBatchBuffer:
     async def test_flush_deduplication(self, buffer_fixture, entity_update, mock_redis) -> None:
         """Test that flush deduplicates relationships by (entity_id, rel_type)."""
         # Add two entity updates with same entity_id + rel_type
-        update1 = entity_update.model_copy(
-            update=entity_update.model_dump()
-        )
+        update1 = entity_update.model_copy(update=entity_update.model_dump())
         update2 = EntityUpdate(
             entity_type="Company",
             entity_id="test-company-1",  # Same entity_id
@@ -255,7 +253,10 @@ class TestMicroBatchBuffer:
     async def test_flush_clears_redis(self, buffer_fixture, mock_redis) -> None:
         """Test that flush clears the Redis list after reading."""
         # Add an item to Redis directly
-        await mock_redis.lpush("stratops:tenant:00000000-0000-0000-0000-000000000001:graph:pending", json.dumps({"test": "data"}))
+        await mock_redis.lpush(
+            "stratops:tenant:00000000-0000-0000-0000-000000000001:graph:pending",
+            json.dumps({"test": "data"}),
+        )
 
         # Also add to in-memory buffer
         buffer_fixture._buffer.append({"test": "data"})
@@ -285,7 +286,9 @@ class TestGraphWriterWorker:
         assert worker._running is False
 
     @pytest.mark.asyncio
-    async def test_worker_process_message(self, mock_redis, mock_neo4j_client, entity_update) -> None:
+    async def test_worker_process_message(
+        self, mock_redis, mock_neo4j_client, entity_update
+    ) -> None:
         """Test processing a single message through the worker."""
         worker = GraphWriterWorker(
             redis=mock_redis,

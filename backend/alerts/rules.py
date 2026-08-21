@@ -40,10 +40,7 @@ class AlertRule(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     tenant_id: str = Field(..., description="Tenant identifier")
     name: str = Field(..., description="Human-readable rule name")
-    rule_type: str = Field(
-        ...,
-        description="Rule type: threshold, anomaly, correlation, trend"
-    )
+    rule_type: str = Field(..., description="Rule type: threshold, anomaly, correlation, trend")
     condition: dict[str, Any] = Field(
         ...,
         description="Rule-specific condition",
@@ -83,7 +80,9 @@ class Alert(BaseModel):
     rule_name: str = Field(..., description="Rule name")
     severity: str = Field(..., description="Alert severity")
     message: str = Field(..., description="Human-readable alert message")
-    evidence: dict[str, Any] = Field(default_factory=dict, description="Pointers to supporting data")
+    evidence: dict[str, Any] = Field(
+        default_factory=dict, description="Pointers to supporting data"
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
@@ -383,10 +382,14 @@ class AlertRuleEngine:
                 )
             )
 
-        triggered.extend(self._structured_trend_alerts(state, rule, trend_type, direction, z_score_min))
+        triggered.extend(
+            self._structured_trend_alerts(state, rule, trend_type, direction, z_score_min)
+        )
         return triggered
 
-    def _extract_metrics(self, state: IntelligenceState, metric: str | None = None) -> dict[str, Any]:
+    def _extract_metrics(
+        self, state: IntelligenceState, metric: str | None = None
+    ) -> dict[str, Any]:
         """Extract graph density, anomaly scores, and entity trend vectors.
 
         Args:
@@ -427,7 +430,9 @@ class AlertRuleEngine:
                 continue
 
             self._assign_metric(pricing_delta, name, entity, ("pricing_delta", "price_change"))
-            self._assign_metric(mention_frequency, name, entity, ("mention_count", "mentions", "mention_frequency"))
+            self._assign_metric(
+                mention_frequency, name, entity, ("mention_count", "mentions", "mention_frequency")
+            )
             self._assign_metric(hiring_velocity, name, entity, ("hiring_velocity", "new_hires"))
             self._assign_metric(sentiment, name, entity, ("sentiment_score", "sentiment"))
 
@@ -443,7 +448,9 @@ class AlertRuleEngine:
                 typed_series: dict[str, list[float]] = {}
                 for hist_key, values in history.items():
                     if isinstance(values, (list, tuple)):
-                        parsed = [v for v in (self._coerce_float(x) for x in values) if v is not None]
+                        parsed = [
+                            v for v in (self._coerce_float(x) for x in values) if v is not None
+                        ]
                         if parsed:
                             typed_series[str(hist_key)] = parsed
                 if typed_series:
@@ -463,7 +470,8 @@ class AlertRuleEngine:
         }
 
         if metric is not None:
-            return bundle.get(metric, {})
+            metric_bundle: dict[str, Any] = bundle.get(metric, {})
+            return metric_bundle
 
         return bundle
 
@@ -565,20 +573,24 @@ class AlertRuleEngine:
             entity_ids = self._ENTITY_ID_RE.findall(delta)
             if len(entity_ids) < 2:
                 continue
-            valid_from: datetime | None = None
-            raw_valid_from = delta.split("valid_from: '")[-1].split("'")[0] if "valid_from: '" in delta else ""
-            if raw_valid_from:
+            delta_valid_from: datetime | None = None
+            raw_delta_valid_from = (
+                delta.split("delta_valid_from: '")[-1].split("'")[0]
+                if "delta_valid_from: '" in delta
+                else ""
+            )
+            if raw_delta_valid_from:
                 try:
-                    valid_from = datetime.fromisoformat(raw_valid_from)
+                    delta_valid_from = datetime.fromisoformat(raw_delta_valid_from)
                 except ValueError:
-                    valid_from = None
+                    delta_valid_from = None
             correlations.append(
                 {
                     "correlation_type": props.group("corr_type"),
                     "strength": max(0.0, min(1.0, float(props.group("strength")))),
                     "entity_a": entity_ids[0],
                     "entity_b": entity_ids[1],
-                    "valid_from": valid_from,
+                    "valid_from": delta_valid_from,
                 }
             )
         return correlations
@@ -656,7 +668,7 @@ class AlertRuleEngine:
 
         z_score = (recent - hist_mean) / hist_std
 
-        recent_segment = series[max(1, len(series) // 2):]
+        recent_segment = series[max(1, len(series) // 2) :]
         recent_std = pstdev(recent_segment) if len(recent_segment) > 1 else 0.0
         std_shift = recent_std / hist_std
 
@@ -673,7 +685,9 @@ class AlertRuleEngine:
             return abs(z_score) >= z_score_min
         return False
 
-    def _entity_matches_type(self, state: IntelligenceState, entity_name: str, entity_types: list[str]) -> bool:
+    def _entity_matches_type(
+        self, state: IntelligenceState, entity_name: str, entity_types: list[str]
+    ) -> bool:
         """Check whether *entity_name* resolves to one of *entity_types*.
 
         Entities without a resolvable type record are always included.

@@ -10,7 +10,7 @@ import hashlib
 import re
 import urllib.parse
 from datetime import date, datetime
-from typing import Any
+from typing import Any, ClassVar
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -54,12 +54,14 @@ from ..base import (
 
 
 # Lazy import for aiobotocore
-def _get_aiobotocore():
+def _get_aiobotocore() -> tuple[Any, bool]:
     try:
         import aiobotocore.session
+
         return aiobotocore.session, True
     except ImportError:
         return None, False
+
 
 logger = structlog.get_logger(__name__)
 
@@ -78,7 +80,9 @@ class SECConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     ciks: list[str] = Field(..., min_length=1, description="CIK numbers to track")
-    form_types: list[str] = Field(default=["10-K", "10-Q", "8-K"], description="Form types to fetch")
+    form_types: list[str] = Field(
+        default=["10-K", "10-Q", "8-K"], description="Form types to fetch"
+    )
     lookback_days: int = Field(default=30, ge=1, le=365, description="Days to look back")
     filing_date_from: date | None = Field(default=None, description="Explicit start date")
     filing_date_to: date | None = Field(default=None, description="Explicit end date")
@@ -117,7 +121,9 @@ class SECFilingAdapter(SourceAdapter):
         """Lazy-initialize Playwright browser."""
         if self._browser is None or not self._browser.is_connected():
             if not PLAYWRIGHT_AVAILABLE:
-                raise RuntimeError("Playwright not installed. Install with: pip install playwright && playwright install")
+                raise RuntimeError(
+                    "Playwright not installed. Install with: pip install playwright && playwright install"
+                )
             self._playwright = await async_playwright().start()
             self._browser = await self._playwright.chromium.launch(headless=True)
         return self._browser
@@ -174,12 +180,12 @@ class SECFilingAdapter(SourceAdapter):
         next_cursors: dict[str, str] = {}
 
         # Parse cursor
-        form_type = "10-K"
+        _form_type = "10-K"
         start_idx = 0
         if cursor:
             parts = cursor.split(":")
             if len(parts) == 2:
-                form_type, start_idx = parts[0], int(parts[1])
+                _form_type, start_idx = parts[0], int(parts[1])
 
         # For each form type, fetch feed
         for ft in cfg.form_types:
@@ -190,6 +196,7 @@ class SECFilingAdapter(SourceAdapter):
 
                 # Fetch with custom headers
                 import httpx
+
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     resp = await client.get(
                         feed_url,
@@ -199,7 +206,9 @@ class SECFilingAdapter(SourceAdapter):
                     feed = feedparser.parse(resp.text)
 
                 if feed.bozo:
-                    logger.warning("feed_parse_warning", form_type=ft, error=str(feed.bozo_exception))
+                    logger.warning(
+                        "feed_parse_warning", form_type=ft, error=str(feed.bozo_exception)
+                    )
 
                 for entry in feed.entries:
                     # Filter by CIK if specified
@@ -216,12 +225,14 @@ class SECFilingAdapter(SourceAdapter):
                         if cfg.filing_date_to and filing_date > cfg.filing_date_to:
                             continue
 
-                    all_entries.append({
-                        "form_type": ft,
-                        "entry": entry,
-                        "cik": cik,
-                        "filing_date": filing_date.isoformat() if filing_date else None,
-                    })
+                    all_entries.append(
+                        {
+                            "form_type": ft,
+                            "entry": entry,
+                            "cik": cik,
+                            "filing_date": filing_date.isoformat() if filing_date else None,
+                        }
+                    )
 
                 next_cursors[ft] = str(start_idx + len(feed.entries))
 
@@ -231,6 +242,7 @@ class SECFilingAdapter(SourceAdapter):
 
         # Combine entries into single XML-like structure for parse()
         import json
+
         combined = json.dumps({"entries": all_entries, "cursors": next_cursors})
 
         return IngestionResult(
@@ -263,7 +275,9 @@ class SECFilingAdapter(SourceAdapter):
         for field in ["filing_date", "updated", "published", "date"]:
             if hasattr(entry, field):
                 try:
-                    return datetime.fromisoformat(getattr(entry, field).replace("Z", "+00:00")).date()
+                    return datetime.fromisoformat(
+                        getattr(entry, field).replace("Z", "+00:00")
+                    ).date()
                 except Exception:
                     pass
         return None
@@ -291,15 +305,17 @@ class SECFilingAdapter(SourceAdapter):
             signal = RawSignal(
                 source_type=self.source_type,
                 source_url=filing_url,
-                raw_content=json.dumps({
-                    "form_type": form_type,
-                    "cik": cik,
-                    "company_name": company_name,
-                    "accession_number": accession,
-                    "filing_date": filing_date,
-                    "filing_url": filing_url,
-                    "entry_raw": entry,
-                }).encode("utf-8"),
+                raw_content=json.dumps(
+                    {
+                        "form_type": form_type,
+                        "cik": cik,
+                        "company_name": company_name,
+                        "accession_number": accession,
+                        "filing_date": filing_date,
+                        "filing_url": filing_url,
+                        "entry_raw": entry,
+                    }
+                ).encode("utf-8"),
                 fingerprint=None,  # Will be computed by fingerprint()
                 collected_at=datetime.utcnow(),
                 metadata={
@@ -357,7 +373,7 @@ class SECFilingAdapter(SourceAdapter):
     async def fingerprint(self, signal: RawSignal) -> str:
         """Compute fingerprint from accession number + form type + date."""
         meta = signal.metadata
-        key = f"{meta.get('accession_number','')}|{meta.get('form_type','')}|{meta.get('filing_date','')}"
+        key = f"{meta.get('accession_number', '')}|{meta.get('form_type', '')}|{meta.get('filing_date', '')}"
         return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
     async def normalize(self, signals: list[RawSignal]) -> list[NormalizedSignal]:
@@ -366,7 +382,9 @@ class SECFilingAdapter(SourceAdapter):
         if not available:
             raise RuntimeError("aiobotocore not installed. Install with: pip install aiobotocore")
         if not BS4_AVAILABLE:
-            raise RuntimeError("beautifulsoup4 not installed. Install with: pip install beautifulsoup4")
+            raise RuntimeError(
+                "beautifulsoup4 not installed. Install with: pip install beautifulsoup4"
+            )
 
         browser = await self._ensure_browser()
         normalized: list[NormalizedSignal] = []

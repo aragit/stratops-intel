@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import TypedDict
+from typing import Any, TypedDict
 
 # aiobotocore imported lazily inside methods to avoid OpenSSL compatibility issues
 # in the test environment (botocore.translate -> botocore.utils -> urllib3.contrib.pyopenssl -> OpenSSL)
@@ -41,9 +41,7 @@ class EntityExtractorNode:
     """LangGraph node that extracts entities from signals using vLLM."""
 
     def __init__(self) -> None:
-        self.bentoml_base = os.getenv(
-            "BENTOML_EXTRACTION_URL", "http://bentoml-extraction:3000"
-        )
+        self.bentoml_base = os.getenv("BENTOML_EXTRACTION_URL", "http://bentoml-extraction:3000")
 
     async def _download_from_minio(self, s3_uri: str) -> str:
         """Download content from MinIO via aiobotocore.
@@ -64,10 +62,9 @@ class EntityExtractorNode:
         key = uri_parts[1] if len(uri_parts) > 1 else ""
 
         async with session.create_client("s3", region_name="us-east-1") as client:
-
             response = await client.get_object(Bucket=bucket, Key=key)
             content = await response["Body"].read()
-            return content.decode("utf-8")
+            return str(content.decode("utf-8"))
 
     async def _call_bentoml_extraction(
         self, texts: list[str], schema_name: str, tenant_id: str
@@ -206,14 +203,12 @@ class EntityExtractorNode:
 
                 # Build content URI for extracted entities
                 entity_key = f"{trace_id}/signal_{signal_idx}_entities.json"
-                entity_uri = f"s3://stratops-extracted-{tenant_id}/{entity_key}"
+                _entity_uri = f"s3://stratops-extracted-{tenant_id}/{entity_key}"
 
                 # Serialize entities to JSON and upload to MinIO
                 # Cap at ~10KB to keep state small
                 recent_entities = all_extracted_entities[-entity_count:] if entity_count else []
-                entities_json = json.dumps(
-                    {"entities": recent_entities}, default=str
-                )[:10000]
+                entities_json = json.dumps({"entities": recent_entities}, default=str)[:10000]
 
                 uploaded_uri = await self._upload_to_minio(
                     bucket=f"stratops-extracted-{tenant_id}",
@@ -255,7 +250,8 @@ class EntityExtractorNode:
             "signal_uris": state.get("signal_uris", []),
             "extracted_entities": all_extracted_entities,
             "content_uris": state.get("content_uris", []) + new_content_uris,
-            "correlation_graph_delta": state.get("correlation_graph_delta", []) + correlation_deltas,
+            "correlation_graph_delta": state.get("correlation_graph_delta", [])
+            + correlation_deltas,
             "briefing_section_uris": state.get("briefing_section_uris", []),
         }
 

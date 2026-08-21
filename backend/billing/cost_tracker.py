@@ -16,9 +16,24 @@ logger = structlog.get_logger(__name__)
 
 #: Tier definitions with monthly token limits and pricing per 1K tokens
 TIER_LIMITS: dict[str, dict[str, int | float]] = {
-    "free": {"monthly_prompt_tokens": 10_000, "monthly_completion_tokens": 10_000, "prompt_cost_per_1k": 0.0, "completion_cost_per_1k": 0.0},
-    "pro": {"monthly_prompt_tokens": 100_000, "monthly_completion_tokens": 100_000, "prompt_cost_per_1k": 0.05, "completion_cost_per_1k": 0.15},
-    "enterprise": {"monthly_prompt_tokens": 1_000_000, "monthly_completion_tokens": 1_000_000, "prompt_cost_per_1k": 0.03, "completion_cost_per_1k": 0.10},
+    "free": {
+        "monthly_prompt_tokens": 10_000,
+        "monthly_completion_tokens": 10_000,
+        "prompt_cost_per_1k": 0.0,
+        "completion_cost_per_1k": 0.0,
+    },
+    "pro": {
+        "monthly_prompt_tokens": 100_000,
+        "monthly_completion_tokens": 100_000,
+        "prompt_cost_per_1k": 0.05,
+        "completion_cost_per_1k": 0.15,
+    },
+    "enterprise": {
+        "monthly_prompt_tokens": 1_000_000,
+        "monthly_completion_tokens": 1_000_000,
+        "prompt_cost_per_1k": 0.03,
+        "completion_cost_per_1k": 0.10,
+    },
 }
 
 #: Tier name human-readable labels
@@ -95,7 +110,7 @@ class CostTracker:
 
         # Aggregate monthly totals in Redis using hash fields
         tier = await self._get_tier(tenant_id)
-        limits = TIER_LIMITS[tier]
+        _limits = TIER_LIMITS[tier]
 
         # Increment cumulative counters
         pipe = self._redis.pipeline()
@@ -150,7 +165,9 @@ class CostTracker:
         completion_limit = limits["monthly_completion_tokens"]
 
         prompt_used_pct = (total_prompt_tokens / prompt_limit * 100) if prompt_limit > 0 else 0.0
-        completion_used_pct = (total_completion_tokens / completion_limit * 100) if completion_limit > 0 else 0.0
+        completion_used_pct = (
+            (total_completion_tokens / completion_limit * 100) if completion_limit > 0 else 0.0
+        )
 
         return {
             "tenant_id": tenant_id,
@@ -160,7 +177,9 @@ class CostTracker:
             "prompt_tokens": total_prompt_tokens,
             "completion_tokens": total_completion_tokens,
             "prompt_cost_usd": round(total_prompt_tokens / 1000 * limits["prompt_cost_per_1k"], 4),
-            "completion_cost_usd": round(total_completion_tokens / 1000 * limits["completion_cost_per_1k"], 4),
+            "completion_cost_usd": round(
+                total_completion_tokens / 1000 * limits["completion_cost_per_1k"], 4
+            ),
             "total_cost_usd": round(total_cost_usd, 4),
             "prompt_tokens_limit": prompt_limit,
             "completion_tokens_limit": completion_limit,

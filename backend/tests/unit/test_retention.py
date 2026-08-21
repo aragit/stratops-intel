@@ -96,6 +96,6 @@ class TestRetentionEngineTableNames:
 
 
 # Apply aioedis mock at module level so retention module can import it
-import backend.jobs.retention as retention_mod
+import backend.jobs.retention as retention_mod  # noqa: E402
 
 retention_mod.aioredis = mock.MagicMock()

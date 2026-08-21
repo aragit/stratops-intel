@@ -47,6 +47,8 @@ dependencies = [
     "opentelemetry-instrumentation-sqlalchemy>=0.45b0",
     "httpx>=0.26.0",
     "networkx>=3.2.0",
+    "cryptography>=42.0.0",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
@@ -62,6 +64,7 @@ dev = [
     "pre-commit>=3.6.0",
     "numpy>=1.24.0",
     "scikit-learn>=1.3.0",
+    "respx>=0.21.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -71,6 +74,8 @@ where = ["."]
 line-length = 100
 target-version = "py311"
 extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
 select = [
     "E",
     "W",
@@ -93,6 +98,7 @@ line-ending = "lf"
 
 [tool.mypy]
 python_version = "3.11"
+explicit_package_bases = true
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
@@ -101,6 +107,33 @@ check_untyped_defs = true
 no_implicit_optional = true
 strict_optional = true
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "ingestion.adapters.web"
+# bs4 PageElement / playwright / aiobotocore stub gaps
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "ingestion.adapters.sec"
+# bs4 NavigableString unions / playwright stub gaps
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "workers.ingestion_worker"
+# aiobotocore AioBaseClient untyped + redis xread dict variance
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "mcp.server"
+disable_error_code = ["attr-defined"]
+
+[[tool.mypy.overrides]]
+module = "ingestion.adapters.earnings"
+disable_error_code = ["override"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

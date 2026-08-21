@@ -52,14 +52,14 @@ class TestFieldEncryptorErrorHandling:
         encryptor = FieldEncryptor()
         try:
             encryptor.decrypt("not-base64!")
-            assert False, "Should have raised ValueError"
+            pytest.fail("Should have raised ValueError")
         except ValueError:
             pass
 
     def test_decrypt_corrupted_ciphertext(self) -> None:
         """decrypt() should raise ValueError on tampered ciphertext."""
         encryptor = FieldEncryptor()
-        original = encryptor.encrypt("secret")
+        _original = encryptor.encrypt("secret")
         try:
             encryptor.decrypt("bXlzdGVyZXI=")  # base64 for "xml"
         except ValueError:
@@ -84,9 +84,10 @@ class TestFieldEncryptorKeyInit:
         original = os.environ.pop("ENCRYPTION_KEY", None)
         try:
             from backend.security.encryption import FieldEncryptor
+
             try:
                 FieldEncryptor()
-                assert False, "Should have raised ValueError"
+                pytest.fail("Should have raised ValueError")
             except ValueError:
                 pass
         finally:
@@ -98,9 +99,10 @@ class TestFieldEncryptorKeyInit:
         os.environ["ENCRYPTION_KEY"] = "short"
         try:
             from backend.security.encryption import FieldEncryptor
+
             try:
                 FieldEncryptor()
-                assert False, "Should have raised ValueError"
+                pytest.fail("Should have raised ValueError")
             except ValueError:
                 pass
         finally:

@@ -75,7 +75,9 @@ class RawSignal(BaseModel):
     source_url: str | None = Field(default=None, description="Original source URL")
     raw_content: bytes = Field(..., description="Raw payload (goes to MinIO)")
     fingerprint: str | None = Field(default=None, description="Dedup fingerprint")
-    collected_at: datetime = Field(default_factory=datetime.utcnow, description="Collection timestamp")
+    collected_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Collection timestamp"
+    )
     metadata: dict[str, Any] = Field(default_factory=dict, description="Adapter-specific metadata")
 
 
@@ -105,7 +107,9 @@ class NormalizedSignal(BaseModel):
     structured_payload: dict[str, Any] = Field(
         default_factory=dict, description="Structured extracted metadata"
     )
-    collected_at: datetime = Field(default_factory=datetime.utcnow, description="Collection timestamp")
+    collected_at: datetime = Field(
+        default_factory=datetime.utcnow, description="Collection timestamp"
+    )
     metadata: dict[str, Any] = Field(default_factory=dict, description="Adapter-specific metadata")
 
 
@@ -237,7 +241,9 @@ class AdapterRegistry:
             AdapterNotFoundError: If no adapter with that name is registered.
         """
         if name not in cls._adapters:
-            raise AdapterNotFoundError(f"Adapter '{name}' not found. Available: {list(cls._adapters.keys())}")
+            raise AdapterNotFoundError(
+                f"Adapter '{name}' not found. Available: {list(cls._adapters.keys())}"
+            )
         return cls._adapters[name]
 
     @classmethod

@@ -56,6 +56,7 @@ class MockPlaywright:
         class Chromium:
             async def launch(self, headless: bool = True):
                 return MockBrowser(self._html)
+
         return Chromium()
 
 
@@ -95,11 +96,11 @@ class TestWebMonitorConfig:
         assert config.max_depth == 1
 
     def test_invalid_url_rejected(self):
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             WebMonitorConfig(urls=["not-a-url"])
 
     def test_empty_urls_rejected(self):
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             WebMonitorConfig(urls=[])
 
 
@@ -114,6 +115,7 @@ class TestWebMonitorAdapter:
     async def test_fetch_returns_ingestion_result(self, adapter):
         """Test fetch returns IngestionResult with HTML."""
         import pytest
+
         pytest.skip("Playwright not installed in test environment")
 
     @pytest.mark.asyncio
@@ -124,14 +126,17 @@ class TestWebMonitorAdapter:
         class ErrorPage:
             async def content(self):
                 return error_html
+
             async def close(self):
                 pass
 
         class ErrorBrowser:
             _connected = True
+
             @property
             def is_connected(self):
                 return True
+
             async def new_page(self, user_agent=None):
                 page = MagicMock()
                 page.goto = AsyncMock()
@@ -139,6 +144,7 @@ class TestWebMonitorAdapter:
                 page.content = AsyncMock(return_value=error_html)
                 page.close = AsyncMock()
                 return page
+
             async def close(self):
                 pass
 
@@ -155,6 +161,7 @@ class TestWebMonitorAdapter:
     async def test_parse_extracts_raw_signals(self, adapter):
         """Test parse extracts one RawSignal per URL."""
         import pytest
+
         pytest.skip("Requires fetch to work which needs Playwright")
 
     @pytest.mark.asyncio
@@ -188,6 +195,7 @@ class TestWebMonitorAdapter:
     async def test_normalize_creates_pointers(self, adapter):
         """Test normalize creates NormalizedSignal with S3 pointers."""
         import pytest
+
         pytest.skip("Requires aiobotocore which has OpenSSL conflict in test env")
 
     @pytest.mark.asyncio

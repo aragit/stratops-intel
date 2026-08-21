@@ -7,6 +7,7 @@ and checkpoint persistence.
 from __future__ import annotations
 
 import json
+import sys
 
 import pytest
 
@@ -104,7 +105,10 @@ class TestEntityExtractorNode:
 
     @pytest.mark.asyncio
     async def test_pointer_only_no_raw_content(
-        self, extractor_node: EntityExtractorNode, sample_state: IntelligenceState, monkeypatch: pytest.MonkeyPatch
+        self,
+        extractor_node: EntityExtractorNode,
+        sample_state: IntelligenceState,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """CRITICAL: State should not contain raw content, only URIs and small structured data.
 
@@ -113,28 +117,43 @@ class TestEntityExtractorNode:
         """
         # Use monkeypatch to avoid aiobotocore import issues in test env
         # Mock the aiobotocore session.get_session return value
-        mock_session = type('MockSession', (), {
-            'create_client': lambda self, *args, **kwargs: type('MockS3Client', (), {
-                'get_object': lambda self, **kwargs: type('MockBody', (), {
-                    'read': lambda: b'{"signal": "test data", "content": "Apple Inc. designs consumer electronics"}'
-                })()
-            })()
-        })()
+        mock_session = type(
+            "MockSession",
+            (),
+            {
+                "create_client": lambda self, *args, **kwargs: type(
+                    "MockS3Client",
+                    (),
+                    {
+                        "get_object": lambda self, **kwargs: type(
+                            "MockBody",
+                            (),
+                            {
+                                "read": lambda: (
+                                    b'{"signal": "test data", "content": "Apple Inc. designs consumer electronics"}'
+                                )
+                            },
+                        )()
+                    },
+                )()
+            },
+        )()
 
         # Monkeypatch aiobotocore.session.get_session
         original_import = __import__
+
         def mock_import(name, *args, **kwargs):
-            if name == 'aiobotocore':
-                mod = original_import('types').ModuleType('aiobotocore')
-                submod = original_import('types').ModuleType('aiobotocore.session')
+            if name == "aiobotocore":
+                mod = original_import("types").ModuleType("aiobotocore")
+                submod = original_import("types").ModuleType("aiobotocore.session")
                 submod.get_session = lambda: mock_session
                 mod.session = submod
-                sys.modules['aiobotocore'] = mod
-                sys.modules['aiobotocore.session'] = submod
+                sys.modules["aiobotocore"] = mod
+                sys.modules["aiobotocore.session"] = submod
                 return mod
             return original_import(name, *args, **kwargs)
 
-        monkeypatch.setattr('builtins.__import__', mock_import)
+        monkeypatch.setattr("builtins.__import__", mock_import)
 
         try:
             state = await extractor_node(sample_state)
@@ -161,7 +180,10 @@ class TestEntityExtractorNode:
 
     @pytest.mark.asyncio
     async def test_extraction_writes_to_minio(
-        self, extractor_node: EntityExtractorNode, sample_state: IntelligenceState, monkeypatch: pytest.MonkeyPatch
+        self,
+        extractor_node: EntityExtractorNode,
+        sample_state: IntelligenceState,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Should write extracted entities JSON to MinIO and return content URI."""
         # Similar monkeypatch approach
@@ -169,13 +191,18 @@ class TestEntityExtractorNode:
 
     @pytest.mark.asyncio
     async def test_state_size_after_extraction(
-        self, extractor_node: EntityExtractorNode, sample_state: IntelligenceState, monkeypatch: pytest.MonkeyPatch
+        self,
+        extractor_node: EntityExtractorNode,
+        sample_state: IntelligenceState,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test that state size is < 5KB after extraction (CRITICAL)."""
         pass
 
     @pytest.mark.asyncio
-    async def test_checkpoint_persistence(self, extractor_node: EntityExtractorNode, sample_state: IntelligenceState) -> None:
+    async def test_checkpoint_persistence(
+        self, extractor_node: EntityExtractorNode, sample_state: IntelligenceState
+    ) -> None:
         """Test that the compiled graph checkpoints state correctly."""
         graph = build_extractor_graph()
 

@@ -29,11 +29,13 @@ def mock_narrative_client():
     client = mock.AsyncMock()
     mock_response = mock.AsyncMock()
     mock_response.status_code = 200
-    mock_response.json = mock.AsyncMock(return_value={
-        "narrative": "# Executive Summary\n\nApple reported strong quarterly results.",
-        "key_takeaways": ["Record revenue", "Strong iPhone demand"],
-        "confidence": 0.85,
-    })
+    mock_response.json = mock.AsyncMock(
+        return_value={
+            "narrative": "# Executive Summary\n\nApple reported strong quarterly results.",
+            "key_takeaways": ["Record revenue", "Strong iPhone demand"],
+            "confidence": 0.85,
+        }
+    )
     client.post = mock.AsyncMock(return_value=mock_response)
     return client
 
@@ -60,7 +62,6 @@ def sample_state() -> dict:
             "s3://stratops-trends-test/trace-001/trends.json",
             "s3://stratops-anomalies-test/trace-001/anomalies.json",
         ],
-        "extracted_entities": [],
         "correlation_graph_delta": [],
         "briefing_section_uris": [],
     }
@@ -146,7 +147,6 @@ class TestBriefingComposerNode:
                 "s3://stratops-trends-test/trace-001/trends.json",
                 "s3://stratops-anomalies-test/trace-001/anomalies.json",
             ],
-            "extracted_entities": [],
             "correlation_graph_delta": [],
             "briefing_section_uris": [],
         }
@@ -190,9 +190,37 @@ class TestBriefingComposerNode:
     async def test_build_sections_from_intelligence(self, composer, sample_state) -> None:
         """Test building sections from intelligence data."""
         intelligence = {
-            "s3://corr": {"correlations": [{"entity_a": {"name": "A"}, "entity_b": {"name": "B"}, "correlation_type": "pricing", "strength": 0.8}]},
-            "s3://trend": {"trends": [{"entity_name": "Apple", "trend_type": "pricing", "direction": "up", "z_score": 2.5, "confidence": 0.9}]},
-            "s3://anom": {"anomalies": [{"entity_name": "Test", "anomaly_score": -0.8, "severity": "high", "features": {}}]},
+            "s3://corr": {
+                "correlations": [
+                    {
+                        "entity_a": {"name": "A"},
+                        "entity_b": {"name": "B"},
+                        "correlation_type": "pricing",
+                        "strength": 0.8,
+                    }
+                ]
+            },
+            "s3://trend": {
+                "trends": [
+                    {
+                        "entity_name": "Apple",
+                        "trend_type": "pricing",
+                        "direction": "up",
+                        "z_score": 2.5,
+                        "confidence": 0.9,
+                    }
+                ]
+            },
+            "s3://anom": {
+                "anomalies": [
+                    {
+                        "entity_name": "Test",
+                        "anomaly_score": -0.8,
+                        "severity": "high",
+                        "features": {},
+                    }
+                ]
+            },
             "s3://narr": {"narrative": "Test narrative"},
         }
 
@@ -209,8 +237,18 @@ class TestBriefingComposerNode:
     async def test_format_correlations(self, composer) -> None:
         """Test correlation formatting."""
         correlations = [
-            {"entity_a": {"name": "A"}, "entity_b": {"name": "B"}, "correlation_type": "pricing", "strength": 0.8},
-            {"entity_a": {"name": "C"}, "entity_b": {"name": "D"}, "correlation_type": "talent", "strength": 0.6},
+            {
+                "entity_a": {"name": "A"},
+                "entity_b": {"name": "B"},
+                "correlation_type": "pricing",
+                "strength": 0.8,
+            },
+            {
+                "entity_a": {"name": "C"},
+                "entity_b": {"name": "D"},
+                "correlation_type": "talent",
+                "strength": 0.6,
+            },
         ]
 
         md = composer._format_correlations(correlations)
@@ -224,8 +262,20 @@ class TestBriefingComposerNode:
     def test_format_trends(self, composer) -> None:
         """Test trend formatting."""
         trends = [
-            {"entity_name": "Apple", "trend_type": "pricing", "direction": "up", "z_score": 2.5, "confidence": 0.9},
-            {"entity_name": "Microsoft", "trend_type": "hiring", "direction": "down", "z_score": -1.8, "confidence": 0.7},
+            {
+                "entity_name": "Apple",
+                "trend_type": "pricing",
+                "direction": "up",
+                "z_score": 2.5,
+                "confidence": 0.9,
+            },
+            {
+                "entity_name": "Microsoft",
+                "trend_type": "hiring",
+                "direction": "down",
+                "z_score": -1.8,
+                "confidence": 0.7,
+            },
         ]
 
         md = composer._format_trends(trends)
@@ -238,7 +288,12 @@ class TestBriefingComposerNode:
     def test_format_anomalies(self, composer) -> None:
         """Test anomaly formatting."""
         anomalies = [
-            {"entity_name": "Test Co", "anomaly_score": -1.2, "severity": "high", "features": {"vol": 0.5, "mentions": 3.0}},
+            {
+                "entity_name": "Test Co",
+                "anomaly_score": -1.2,
+                "severity": "high",
+                "features": {"vol": 0.5, "mentions": 3.0},
+            },
         ]
 
         md = composer._format_anomalies(anomalies)
@@ -266,16 +321,17 @@ class TestBriefingComposerNode:
         # Mock the narrative client post response
         class MockResponse:
             status_code = 200
+
             def json(self):
                 return {
                     "narrative": "# Executive Brief\n\nApple reported record revenue of $94.8B driven by iPhone and services.\n\nKey developments:\n- iPhone 15 demand strong\n- Services revenue growing\n- Guidance conservative\n\nRecommended actions:\n- Monitor iPhone demand in China\n- Invest in AI services",
                     "key_takeaways": [
                         "Apple reported record $94.8B revenue",
                         "iPhone and services driving growth",
-                        "Conservative guidance for next quarter"
+                        "Conservative guidance for next quarter",
                     ],
                     "confidence": 0.85,
-                    "model": "test-model"
+                    "model": "test-model",
                 }
 
         mock_narrative_client.post.return_value = MockResponse()
@@ -288,9 +344,10 @@ class TestBriefingComposerNode:
         assert summary.confidence == 0.85
 
     @pytest.mark.asyncio
-
     @pytest.mark.asyncio
-    async def test_generate_executive_summary_failure(self, composer, mock_narrative_client) -> None:
+    async def test_generate_executive_summary_failure(
+        self, composer, mock_narrative_client
+    ) -> None:
         """Executive summary returns None on failure."""
         mock_narrative_client.post.side_effect = Exception("Service down")
 
@@ -327,10 +384,32 @@ class TestBriefingComposerNode:
     ) -> None:
         """Full call test - verify pointer-only state."""
         # Mock MinIO download for intelligence
-        mock_minio_client.download.side_effect = [json.dumps(v) for v in [
-            {"correlations": [{"entity_a": {"name": "A"}, "entity_b": {"name": "B"}, "correlation_type": "pricing", "strength": 0.8}]},
-            {"trends": [{"entity_name": "Test", "trend_type": "pricing", "direction": "up", "z_score": 2.0, "confidence": 0.8}]},
-        ]]
+        mock_minio_client.download.side_effect = [
+            json.dumps(v)
+            for v in [
+                {
+                    "correlations": [
+                        {
+                            "entity_a": {"name": "A"},
+                            "entity_b": {"name": "B"},
+                            "correlation_type": "pricing",
+                            "strength": 0.8,
+                        }
+                    ]
+                },
+                {
+                    "trends": [
+                        {
+                            "entity_name": "Test",
+                            "trend_type": "pricing",
+                            "direction": "up",
+                            "z_score": 2.0,
+                            "confidence": 0.8,
+                        }
+                    ]
+                },
+            ]
+        ]
 
         result = await composer(sample_state)
 
@@ -349,13 +428,13 @@ class TestBriefingComposerNode:
         assert result["briefing_section_uris"][0].startswith("s3://stratops-briefings-")
 
     @pytest.mark.asyncio
-    async def test_state_size_under_limit(self, composer, mock_minio_client, mock_narrative_client) -> None:
+    async def test_state_size_under_limit(
+        self, composer, mock_minio_client, mock_narrative_client
+    ) -> None:
         """State size stays under 5KB even with many sections."""
         state = {
             "tenant_id": "001",
             "trace_id": "trace-001",
-            "content_uris": [f"s3://test/{i}" for i in range(20)],
-            "extracted_entities": [],
             "content_uris": [f"s3://test/{i}" for i in range(20)],
             "extracted_entities": [],
             "correlation_graph_delta": [],
@@ -365,7 +444,16 @@ class TestBriefingComposerNode:
         # Mock downloads
         mock_data = {}
         for i in range(20):
-            mock_data[f"s3://test/{i}"] = {"correlations": [{"entity_a": {"name": f"A{i}"}, "entity_b": {"name": f"B{i}"}, "correlation_type": "pricing", "strength": 0.5}]}
+            mock_data[f"s3://test/{i}"] = {
+                "correlations": [
+                    {
+                        "entity_a": {"name": f"A{i}"},
+                        "entity_b": {"name": f"B{i}"},
+                        "correlation_type": "pricing",
+                        "strength": 0.5,
+                    }
+                ]
+            }
         mock_minio_client.download.side_effect = [json.dumps(v) for v in mock_data.values()]
 
         result = await composer(state)

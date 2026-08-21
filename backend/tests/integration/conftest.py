@@ -10,6 +10,7 @@ uses the admin (superuser) engine to bypass RLS; only test assertions use testus
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
@@ -18,6 +19,7 @@ from uuid import uuid4
 
 import pytest
 import redis.asyncio as aioredis
+import respx
 import structlog
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
@@ -33,11 +35,13 @@ from sqlalchemy.pool import NullPool
 def _get_aiobotocore():
     try:
         import aiobotocore.session
+
         return aiobotocore.session, True
     except (ImportError, AttributeError) as e:
         if "GEN_EMAIL" in str(e):
             return None, False
         return None, False
+
 
 AIOBOTOCORE_AVAILABLE = False
 
@@ -61,8 +65,9 @@ try:
 except ImportError:
     MinioContainer = None
 
-from backend.db.models import APIKey, Base, Tenant, User
-from backend.db.tenant_session import TenantSessionManager
+from backend.db.models import APIKey, Base, Tenant, User  # noqa: E402
+from backend.db.neo4j_client import Neo4jClient  # noqa: E402
+from backend.db.tenant_session import TenantSessionManager  # noqa: E402
 
 logger = structlog.get_logger(__name__)
 
@@ -81,21 +86,6 @@ def redis_container() -> Generator[RedisContainer, None, None]:
         yield redis_c
 
 
-@pytest.fixture(scope="module")
-def minio_container() -> Generator[MinioContainer, None, None]:
-    """Start a MinIO testcontainer for integration tests."""
-    if MinioContainer is None:
-        pytest.skip("testcontainers-minio not installed")
-    container = MinioContainer(
-        image="minio/minio:latest",
-        access_key="minioadmin",
-        secret_key="minioadmin",
-    )
-    container.start()
-    yield container
-    container.stop()
-
-
 def _to_asyncpg_url(database_url: str) -> str:
     """Convert a PostgreSQL URL to use the asyncpg driver."""
     if "+asyncpg" not in database_url:
@@ -105,7 +95,9 @@ def _to_asyncpg_url(database_url: str) -> str:
 
 
 @pytest.fixture(scope="module")
-async def integration_engines(postgres_container: PostgresContainer) -> AsyncGenerator[tuple[AsyncEngine, AsyncEngine], None]:
+async def integration_engines(
+    postgres_container: PostgresContainer,
+) -> AsyncGenerator[tuple[AsyncEngine, AsyncEngine], None]:
     """Create admin and test async engines.
 
     The admin engine connects as the superuser for fixture setup/teardown
@@ -115,20 +107,24 @@ async def integration_engines(postgres_container: PostgresContainer) -> AsyncGen
     superuser_url = _to_asyncpg_url(postgres_container.get_connection_url())
 
     admin_engine = create_async_engine(
-        superuser_url, echo=False, poolclass=NullPool,
+        superuser_url,
+        echo=False,
+        poolclass=NullPool,
         connect_args={"server_settings": {"application_name": "integration-admin"}},
     )
 
     async with admin_engine.begin() as conn:
         await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
-        await conn.execute(text(
-            "DO $$ BEGIN "
-            "IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'testuser') THEN "
-            "CREATE ROLE testuser LOGIN PASSWORD 'testpass'; "
-            "END IF; "
-            "END $$;"
-        ))
+        await conn.execute(
+            text(
+                "DO $$ BEGIN "
+                "IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'testuser') THEN "
+                "CREATE ROLE testuser LOGIN PASSWORD 'testpass'; "
+                "END IF; "
+                "END $$;"
+            )
+        )
 
     async with admin_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -139,30 +135,41 @@ async def integration_engines(postgres_container: PostgresContainer) -> AsyncGen
             await conn.execute(text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY;"))
             await conn.execute(text(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY;"))
             await conn.execute(text(f"GRANT ALL ON TABLE {table} TO testuser;"))
-            await conn.execute(text("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO testuser;"))
+            await conn.execute(
+                text("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO testuser;")
+            )
 
-        await conn.execute(text("""
+        await conn.execute(
+            text("""
             CREATE POLICY tenant_isolation ON tenants
             FOR ALL USING (id = current_setting('app.current_tenant')::UUID);
-        """))
-        await conn.execute(text("""
+        """)
+        )
+        await conn.execute(
+            text("""
             CREATE POLICY tenant_isolation ON users
             FOR ALL USING (tenant_id = current_setting('app.current_tenant')::UUID);
-        """))
-        await conn.execute(text("""
+        """)
+        )
+        await conn.execute(
+            text("""
             CREATE POLICY tenant_isolation ON api_keys
             FOR ALL USING (tenant_id = current_setting('app.current_tenant')::UUID);
-        """))
-        await conn.execute(text("""
+        """)
+        )
+        await conn.execute(
+            text("""
             CREATE POLICY tenant_isolation ON tenant_configs
             FOR ALL USING (tenant_id = current_setting('app.current_tenant')::UUID);
-        """))
+        """)
+        )
 
     from urllib.parse import urlparse, urlunparse
+
     parsed = urlparse(superuser_url)
-    testuser_url = urlunparse(parsed._replace(
-        netloc=f"testuser:testpass@{parsed.hostname}:{parsed.port}"
-    ))
+    testuser_url = urlunparse(
+        parsed._replace(netloc=f"testuser:testpass@{parsed.hostname}:{parsed.port}")
+    )
 
     test_engine = create_async_engine(
         testuser_url,
@@ -193,7 +200,9 @@ async def test_engine(integration_engines: tuple[AsyncEngine, AsyncEngine]) -> A
 
 
 @pytest.fixture(scope="module")
-async def integration_redis(redis_container: RedisContainer) -> AsyncGenerator[aioredis.Redis, None]:
+async def integration_redis(
+    redis_container: RedisContainer,
+) -> AsyncGenerator[aioredis.Redis, None]:
     """Create an async Redis client pointing to the testcontainer."""
     redis_url = f"redis://{redis_container.get_container_host_ip()}:{redis_container.get_exposed_port(6379)}"
     client = aioredis.from_url(redis_url, decode_responses=True)
@@ -222,10 +231,12 @@ def minio_container() -> Generator[MinioContainer, None, None]:
 @pytest.fixture(scope="module")
 async def s3_client(minio_container) -> AsyncGenerator[Any, None]:
     """Create an async S3 client pointing to the test MinIO container."""
+
     # Lazy import to avoid OpenSSL conflict at module load time
     def _get_aiobotocore_session():
         try:
             import aiobotocore.session
+
             return aiobotocore.session, True
         except (ImportError, AttributeError) as e:
             if "GEN_EMAIL" in str(e):
@@ -236,7 +247,9 @@ async def s3_client(minio_container) -> AsyncGenerator[Any, None]:
     if not available:
         pytest.skip("aiobotocore not available")
 
-    endpoint = f"http://{minio_container.get_container_host_ip()}:{minio_container.get_exposed_port(9000)}"
+    endpoint = (
+        f"http://{minio_container.get_container_host_ip()}:{minio_container.get_exposed_port(9000)}"
+    )
     session = aiobotocore_session.get_session()
     try:
         async with session.create_client(
@@ -261,14 +274,30 @@ async def test_tenant_a(integration_engine: AsyncEngine) -> AsyncGenerator[dict,
         bind=integration_engine, class_=AsyncSession, expire_on_commit=False
     )
     async with session_factory() as session:
-        t = Tenant(id=tenant_id, name=f"Tenant A {tenant_id.hex[:8]}", slug=f"tenant-a-{tenant_id.hex[:8]}", tier="pro")
+        t = Tenant(
+            id=tenant_id,
+            name=f"Tenant A {tenant_id.hex[:8]}",
+            slug=f"tenant-a-{tenant_id.hex[:8]}",
+            tier="pro",
+        )
         session.add(t)
         await session.commit()
-    yield {"id": tenant_id, "name": f"Tenant A {tenant_id.hex[:8]}", "slug": f"tenant-a-{tenant_id.hex[:8]}", "tier": "pro"}
+    yield {
+        "id": tenant_id,
+        "name": f"Tenant A {tenant_id.hex[:8]}",
+        "slug": f"tenant-a-{tenant_id.hex[:8]}",
+        "tier": "pro",
+    }
     async with session_factory() as session:
-        await session.execute(text("DELETE FROM api_keys WHERE tenant_id = :tid"), {"tid": str(tenant_id)})
-        await session.execute(text("DELETE FROM users WHERE tenant_id = :tid"), {"tid": str(tenant_id)})
-        await session.execute(text("DELETE FROM tenant_configs WHERE tenant_id = :tid"), {"tid": str(tenant_id)})
+        await session.execute(
+            text("DELETE FROM api_keys WHERE tenant_id = :tid"), {"tid": str(tenant_id)}
+        )
+        await session.execute(
+            text("DELETE FROM users WHERE tenant_id = :tid"), {"tid": str(tenant_id)}
+        )
+        await session.execute(
+            text("DELETE FROM tenant_configs WHERE tenant_id = :tid"), {"tid": str(tenant_id)}
+        )
         await session.execute(text("DELETE FROM tenants WHERE id = :tid"), {"tid": str(tenant_id)})
         await session.commit()
 
@@ -281,14 +310,30 @@ async def test_tenant_b(integration_engine: AsyncEngine) -> AsyncGenerator[dict,
         bind=integration_engine, class_=AsyncSession, expire_on_commit=False
     )
     async with session_factory() as session:
-        t = Tenant(id=tenant_id, name=f"Tenant B {tenant_id.hex[:8]}", slug=f"tenant-b-{tenant_id.hex[:8]}", tier="free")
+        t = Tenant(
+            id=tenant_id,
+            name=f"Tenant B {tenant_id.hex[:8]}",
+            slug=f"tenant-b-{tenant_id.hex[:8]}",
+            tier="free",
+        )
         session.add(t)
         await session.commit()
-    yield {"id": tenant_id, "name": f"Tenant B {tenant_id.hex[:8]}", "slug": f"tenant-b-{tenant_id.hex[:8]}", "tier": "free"}
+    yield {
+        "id": tenant_id,
+        "name": f"Tenant B {tenant_id.hex[:8]}",
+        "slug": f"tenant-b-{tenant_id.hex[:8]}",
+        "tier": "free",
+    }
     async with session_factory() as session:
-        await session.execute(text("DELETE FROM api_keys WHERE tenant_id = :tid"), {"tid": str(tenant_id)})
-        await session.execute(text("DELETE FROM users WHERE tenant_id = :tid"), {"tid": str(tenant_id)})
-        await session.execute(text("DELETE FROM tenant_configs WHERE tenant_id = :tid"), {"tid": str(tenant_id)})
+        await session.execute(
+            text("DELETE FROM api_keys WHERE tenant_id = :tid"), {"tid": str(tenant_id)}
+        )
+        await session.execute(
+            text("DELETE FROM users WHERE tenant_id = :tid"), {"tid": str(tenant_id)}
+        )
+        await session.execute(
+            text("DELETE FROM tenant_configs WHERE tenant_id = :tid"), {"tid": str(tenant_id)}
+        )
         await session.execute(text("DELETE FROM tenants WHERE id = :tid"), {"tid": str(tenant_id)})
         await session.commit()
 
@@ -315,7 +360,11 @@ async def test_user_a(
         )
         session.add(u)
         await session.commit()
-    yield {"id": user_id, "email": f"user_a_{user_id.hex[:8]}@test.com", "tenant_id": test_tenant_a["id"]}
+    yield {
+        "id": user_id,
+        "email": f"user_a_{user_id.hex[:8]}@test.com",
+        "tenant_id": test_tenant_a["id"],
+    }
 
 
 @pytest.fixture
@@ -340,7 +389,11 @@ async def test_user_b(
         )
         session.add(u)
         await session.commit()
-    yield {"id": user_id, "email": f"user_b_{user_id.hex[:8]}@test.com", "tenant_id": test_tenant_b["id"]}
+    yield {
+        "id": user_id,
+        "email": f"user_b_{user_id.hex[:8]}@test.com",
+        "tenant_id": test_tenant_b["id"],
+    }
 
 
 @pytest.fixture
@@ -398,12 +451,14 @@ async def integration_gateway(
     mock_redis.ping = AsyncMock(return_value=True)
     mock_redis.aclose = AsyncMock()
 
-    with patch("db.tenant_session.get_session_manager", return_value=manager), \
-         patch("db.dependencies.get_session_manager", return_value=manager), \
-         patch("api.gateway.get_session_manager", return_value=manager), \
-         patch("api.auth.get_session_manager", return_value=manager), \
-         patch("api.gateway._redis_pool", mock_redis), \
-         patch("api.gateway.aioredis", MagicMock(return_value=mock_redis)):
+    with (
+        patch("db.tenant_session.get_session_manager", return_value=manager),
+        patch("db.dependencies.get_session_manager", return_value=manager),
+        patch("api.gateway.get_session_manager", return_value=manager),
+        patch("api.auth.get_session_manager", return_value=manager),
+        patch("api.gateway._redis_pool", mock_redis),
+        patch("api.gateway.aioredis", MagicMock(return_value=mock_redis)),
+    ):
         from api.gateway import app
 
         transport = ASGITransport(app=app)
@@ -412,6 +467,7 @@ async def integration_gateway(
 
 
 # === Week 4 fixtures ===
+
 
 @pytest.fixture(scope="module")
 def neo4j_container():
@@ -439,10 +495,7 @@ def test_tenant(neo4j_client: Neo4jClient) -> str:
     """Create a test tenant in Neo4j."""
     tenant_id = str(uuid4())
     asyncio.get_event_loop().run_until_complete(
-        neo4j_client.run(
-            "CREATE (t:Tenant {id: $id, name: 'Test Tenant'})",
-            {"id": tenant_id}
-        )
+        neo4j_client.run("CREATE (t:Tenant {id: $id, name: 'Test Tenant'})", {"id": tenant_id})
     )
     return tenant_id
 
@@ -465,21 +518,25 @@ def mock_extraction_service():
     """Mock BentoML extraction service responses."""
     with respx.mock() as mock:
         mock.post("http://bentoml-extraction:3000/v1/extract").mock(
-            return_value=type('obj', (object,), {
-                'status_code': 200,
-                'json': lambda: [
-                    {
-                        "result": {
-                            "entities": [
-                                {"company_name": "Apple Inc.", "ticker": "AAPL"},
-                                {"name": "Tim Cook", "role": "CEO"},
-                                {"company_name": "Microsoft", "ticker": "MSFT"},
-                                {"name": "Satya Nadella", "role": "CEO"},
-                            ]
+            return_value=type(
+                "obj",
+                (object,),
+                {
+                    "status_code": 200,
+                    "json": lambda: [
+                        {
+                            "result": {
+                                "entities": [
+                                    {"company_name": "Apple Inc.", "ticker": "AAPL"},
+                                    {"name": "Tim Cook", "role": "CEO"},
+                                    {"company_name": "Microsoft", "ticker": "MSFT"},
+                                    {"name": "Satya Nadella", "role": "CEO"},
+                                ]
+                            }
                         }
-                    }
-                ]
-            })
+                    ],
+                },
+            )
         )
         yield mock
 
@@ -489,12 +546,23 @@ def mock_summarization_service():
     """Mock BentoML summarization service responses."""
     with respx.mock() as mock:
         mock.post("http://bentoml-summarization:3000/summarize").mock(
-            return_value=type('obj', (object,), {
-                'status_code': 200,
-                'json': lambda: [
-                    {"summaries": ["Apple reported record revenue driven by iPhone and services."], "model": "test", "batch_size": 1, "total_tokens": 50}
-                ]
-            })
+            return_value=type(
+                "obj",
+                (object,),
+                {
+                    "status_code": 200,
+                    "json": lambda: [
+                        {
+                            "summaries": [
+                                "Apple reported record revenue driven by iPhone and services."
+                            ],
+                            "model": "test",
+                            "batch_size": 1,
+                            "total_tokens": 50,
+                        }
+                    ],
+                },
+            )
         )
         yield mock
 
@@ -504,19 +572,23 @@ def mock_narrative_service():
     """Mock BentoML narrative service responses."""
     with respx.mock() as mock:
         mock.post("http://bentoml-narrative:3000/generate").mock(
-            return_value=type('obj', (object,), {
-                'status_code': 200,
-                'json': lambda: {
-                    "narrative": "# Executive Brief\n\nApple reported record revenue of $94.8B driven by iPhone and services.\n\nKey developments:\n- iPhone 15 demand strong\n- Services revenue growing\n- Guidance conservative\n\nRecommended actions:\n- Monitor iPhone demand in China\n- Invest in AI services",
-                    "key_takeaways": [
-                        "Apple reported record $94.8B revenue",
-                        "iPhone and services driving growth",
-                        "Conservative guidance for next quarter"
-                    ],
-                    "confidence": 0.85,
-                    "model": "test-model"
-                }
-            })
+            return_value=type(
+                "obj",
+                (object,),
+                {
+                    "status_code": 200,
+                    "json": lambda: {
+                        "narrative": "# Executive Brief\n\nApple reported record revenue of $94.8B driven by iPhone and services.\n\nKey developments:\n- iPhone 15 demand strong\n- Services revenue growing\n- Guidance conservative\n\nRecommended actions:\n- Monitor iPhone demand in China\n- Invest in AI services",
+                        "key_takeaways": [
+                            "Apple reported record $94.8B revenue",
+                            "iPhone and services driving growth",
+                            "Conservative guidance for next quarter",
+                        ],
+                        "confidence": 0.85,
+                        "model": "test-model",
+                    },
+                },
+            )
         )
         yield mock
 
@@ -526,12 +598,23 @@ def mock_bentoml_summarization():
     """Mock BentoML summarization service."""
     with respx.mock() as mock:
         mock.post("http://bentoml-summarization:3000/summarize").mock(
-            return_value=type('obj', (object,), {
-                'status_code': 200,
-                'json': lambda: [
-                    {"summaries": ["Apple reported record revenue driven by iPhone and services."], "model": "test", "batch_size": 1, "total_tokens": 50}
-                ]
-            })
+            return_value=type(
+                "obj",
+                (object,),
+                {
+                    "status_code": 200,
+                    "json": lambda: [
+                        {
+                            "summaries": [
+                                "Apple reported record revenue driven by iPhone and services."
+                            ],
+                            "model": "test",
+                            "batch_size": 1,
+                            "total_tokens": 50,
+                        }
+                    ],
+                },
+            )
         )
         yield mock
 
@@ -541,18 +624,22 @@ def mock_bentoml_narrative():
     """Mock BentoML narrative service."""
     with respx.mock() as mock:
         mock.post("http://bentoml-narrative:3000/generate").mock(
-            return_value=type('obj', (object,), {
-                'status_code': 200,
-                'json': lambda: {
-                    "narrative": "# Executive Brief\n\nApple reported record revenue of $94.8B driven by iPhone and services.\n\nKey developments:\n- iPhone 15 demand strong\n- Services revenue growing\n- Guidance conservative\n\nRecommended actions:\n- Monitor iPhone demand in China\n- Invest in AI services",
-                    "key_takeaways": [
-                        "Apple reported record $94.8B revenue",
-                        "iPhone and services driving growth",
-                        "Conservative guidance for next quarter"
-                    ],
-                    "confidence": 0.85,
-                    "model": "test-model"
-                }
-            })
+            return_value=type(
+                "obj",
+                (object,),
+                {
+                    "status_code": 200,
+                    "json": lambda: {
+                        "narrative": "# Executive Brief\n\nApple reported record revenue of $94.8B driven by iPhone and services.\n\nKey developments:\n- iPhone 15 demand strong\n- Services revenue growing\n- Guidance conservative\n\nRecommended actions:\n- Monitor iPhone demand in China\n- Invest in AI services",
+                        "key_takeaways": [
+                            "Apple reported record $94.8B revenue",
+                            "iPhone and services driving growth",
+                            "Conservative guidance for next quarter",
+                        ],
+                        "confidence": 0.85,
+                        "model": "test-model",
+                    },
+                },
+            )
         )
         yield mock

@@ -155,11 +155,11 @@ class AlertRouter:
 
     async def _send_with_retry(
         self,
-        send_func,
-        *args,
+        send_func: Any,
+        *args: Any,
         channel: str,
         alert_id: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> bool:
         """Execute send function with exponential backoff retry.
 
@@ -175,7 +175,7 @@ class AlertRouter:
         for attempt in range(self.max_retries + 1):
             start_time = time.time()
             try:
-                result = await send_func(*args, **kwargs)
+                _result = await send_func(*args, **kwargs)
                 duration_ms = (time.time() - start_time) * 1000
                 logger.info(
                     "channel_send_success",
@@ -197,7 +197,7 @@ class AlertRouter:
                     duration_ms=round(duration_ms, 2),
                 )
                 if attempt < self.max_retries:
-                    backoff = self.retry_backoff_base * (2 ** attempt)
+                    backoff = self.retry_backoff_base * (2**attempt)
                     await asyncio.sleep(backoff)
                 else:
                     logger.error(
@@ -222,8 +222,8 @@ class AlertRouter:
 
         # Determine color based on severity
         severity_colors = {
-            "info": "#36a64f",      # green
-            "warning": "#ff9900",   # orange
+            "info": "#36a64f",  # green
+            "warning": "#ff9900",  # orange
             "critical": "#cc0000",  # red
         }
         color = severity_colors.get(alert.severity, "#808080")
@@ -262,37 +262,41 @@ class AlertRouter:
 
         # Add evidence as context block
         if alert.evidence:
-            evidence_text = "\n".join(
-                f"• {k}: {v}" for k, v in alert.evidence.items()
+            evidence_text = "\n".join(f"• {k}: {v}" for k, v in alert.evidence.items())
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Evidence:*\n{evidence_text}",
+                    },
+                }
             )
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*Evidence:*\n{evidence_text}",
-                },
-            })
 
         # Add evidence links if available
         if alert.evidence.get("signal_uris"):
             links = "\n".join(f"• <{uri}|Signal>" for uri in alert.evidence.get("signal_uris", []))
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"*Evidence:*\n{links}",
-                },
-            })
-
-        blocks.append({
-            "type": "context",
-            "elements": [
+            blocks.append(
                 {
-                    "type": "mrkdwn",
-                    "text": f"Alert ID: {alert.id} | Generated: {alert.created_at.isoformat()}",
-                },
-            ],
-        })
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Evidence:*\n{links}",
+                    },
+                }
+            )
+
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"Alert ID: {alert.id} | Generated: {alert.created_at.isoformat()}",
+                    },
+                ],
+            }
+        )
 
         payload = {
             "username": self.slack_config.username,
@@ -361,7 +365,9 @@ class AlertRouter:
 
         message = EmailMessage()
         message["From"] = f"{self.email_config.from_name} <{self.email_config.from_email}>"
-        message["To"] = self.email_config.from_email  # In production, would use configured recipients
+        message["To"] = (
+            self.email_config.from_email
+        )  # In production, would use configured recipients
         message["Subject"] = f"[{alert.severity.upper()}] {alert.rule_name}"
         message.set_content("This is an HTML email. Please view in an HTML-capable client.")
         message.add_alternative(html, subtype="html")
@@ -377,7 +383,7 @@ class AlertRouter:
             )
             return True
         except Exception as e:
-            raise RuntimeError(f"Email send failed: {e}")
+            raise RuntimeError(f"Email send failed: {e}") from e
 
     def _format_evidence_html(self, evidence: dict[str, Any]) -> str:
         """Format evidence dict as HTML table."""
@@ -493,7 +499,7 @@ class AlertRouterWorker:
                 )
 
                 if result:
-                    for stream, messages in result:
+                    for _stream, messages in result:
                         for message_id, message_data in messages:
                             await self._process_message(message_id, message_data)
 

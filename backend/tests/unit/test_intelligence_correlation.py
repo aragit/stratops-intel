@@ -24,7 +24,9 @@ def mock_neo4j_client():
 def mock_minio_client():
     """Mock MinIO client."""
     client = mock.AsyncMock()
-    client.upload = mock.AsyncMock(return_value="s3://stratops-correlations-test/trace-001/correlations.json")
+    client.upload = mock.AsyncMock(
+        return_value="s3://stratops-correlations-test/trace-001/correlations.json"
+    )
     return client
 
 
@@ -110,9 +112,7 @@ class TestCorrelationEngineNode:
         assert result is state
 
     @pytest.mark.asyncio
-    async def test_pricing_correlation_strength_calculation(
-        self, correlation_engine
-    ) -> None:
+    async def test_pricing_correlation_strength_calculation(self, correlation_engine) -> None:
         """Test pricing strength computation."""
         # Same price = 1.0
         assert correlation_engine._compute_pricing_strength(100, 100) == 1.0
@@ -159,9 +159,7 @@ class TestCorrelationEngineNode:
         assert call_args[0][1]["tenant_id"] == tenant_id
 
     @pytest.mark.asyncio
-    async def test_talent_flow_correlation(
-        self, correlation_engine, mock_neo4j_client
-    ) -> None:
+    async def test_talent_flow_correlation(self, correlation_engine, mock_neo4j_client) -> None:
         """Test talent flow correlation detection."""
         tenant_id = "00000000-0000-0000-0000-000000000001"
         window_start = datetime.utcnow() - timedelta(days=30)
@@ -188,9 +186,7 @@ class TestCorrelationEngineNode:
         assert results[0].strength == 0.8
 
     @pytest.mark.asyncio
-    async def test_co_mention_correlation(
-        self, correlation_engine, mock_neo4j_client
-    ) -> None:
+    async def test_co_mention_correlation(self, correlation_engine, mock_neo4j_client) -> None:
         """Test co-mention correlation detection."""
         tenant_id = "00000000-0000-0000-0000-000000000001"
         window_start = datetime.utcnow() - timedelta(days=30)
@@ -229,9 +225,7 @@ class TestCorrelationEngineNode:
         assert results == []
 
     @pytest.mark.asyncio
-    async def test_write_correlations_to_minio(
-        self, correlation_engine, mock_minio_client
-    ) -> None:
+    async def test_write_correlations_to_minio(self, correlation_engine, mock_minio_client) -> None:
         """Test writing correlations to MinIO."""
         tenant_id = "00000000-0000-0000-0000-000000000001"
         trace_id = "trace-001"
@@ -256,9 +250,7 @@ class TestCorrelationEngineNode:
         mock_minio_client.upload.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_build_graph_deltas(
-        self, correlation_engine
-    ) -> None:
+    async def test_build_graph_deltas(self, correlation_engine) -> None:
         """Test building graph deltas for GraphWriterWorker."""
         correlations = [
             CorrelationResult(
@@ -357,10 +349,7 @@ class TestCorrelationEngineNode:
         trace_id = "trace-001"
 
         # Create many entities (kept under the 5KB state budget after pass-through)
-        entities = [
-            {"company_name": f"Company {i}", "ticker": f"T{i}"}
-            for i in range(80)
-        ]
+        entities = [{"company_name": f"Company {i}", "ticker": f"T{i}"} for i in range(80)]
 
         state = {
             "tenant_id": tenant_id,

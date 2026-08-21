@@ -107,6 +107,8 @@ class FieldEncryptor:
         try:
             plaintext = self._aesgcm.decrypt(nonce, ciphertext, None)
         except Exception as exc:
-            raise ValueError("decryption failed: authentication tag mismatch or corrupted data") from exc
+            raise ValueError(
+                "decryption failed: authentication tag mismatch or corrupted data"
+            ) from exc
 
         return plaintext.decode("utf-8")
