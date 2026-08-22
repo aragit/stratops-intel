@@ -28,12 +28,12 @@ class _RateLimitEvalMock:
         # Extract KEYS[1] and args from the script call
         # eval(script, numkeys, *keys, *args)
         # In our usage: eval(script, 1, key, now_ms, window_ms, limit, member)
-        numkeys = keys_and_args[0] if len(keys_and_args) > 0 else 1
+        _numkeys = keys_and_args[0] if len(keys_and_args) > 0 else 1
         key = keys_and_args[1] if len(keys_and_args) > 1 else None
-        now_ms = keys_and_args[2] if len(keys_and_args) > 2 else None
-        window_ms = keys_and_args[3] if len(keys_and_args) > 3 else None
+        _now_ms = keys_and_args[2] if len(keys_and_args) > 2 else None
+        _window_ms = keys_and_args[3] if len(keys_and_args) > 3 else None
         limit = keys_and_args[4] if len(keys_and_args) > 4 else None
-        member = keys_and_args[5] if len(keys_and_args) > 5 else None
+        _member = keys_and_args[5] if len(keys_and_args) > 5 else None
 
         if key is None:
             return [0, 0]

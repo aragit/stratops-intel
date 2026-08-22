@@ -20,7 +20,6 @@ from typing import Any
 
 from backend.db.neo4j_client import Neo4jClient
 from backend.db.vector_store import VectorStore
-
 from mcp.server import FastMCP
 
 __all__ = ["mcp_server"]
