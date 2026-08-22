@@ -13,10 +13,62 @@ from starlette.requests import Request
 from backend.api.middleware import RateLimitMiddleware, TenantContextMiddleware
 
 
+class _RateLimitEvalMock:
+    """Mock the Lua script execution for the rate limiter sliding-window algorithm.
+
+    The script returns [1, remaining] when allowed, [0, 0] when over limit.
+    """
+
+    def __init__(self, redis_client):
+        self._redis = redis_client
+        self._keys: set = set()
+        self._counts: dict = {}  # key -> count
+
+    async def __call__(self, script, *keys_and_args):
+        # Extract KEYS[1] and args from the script call
+        # eval(script, numkeys, *keys, *args)
+        # In our usage: eval(script, 1, key, now_ms, window_ms, limit, member)
+        numkeys = keys_and_args[0] if len(keys_and_args) > 0 else 1
+        key = keys_and_args[1] if len(keys_and_args) > 1 else None
+        now_ms = keys_and_args[2] if len(keys_and_args) > 2 else None
+        window_ms = keys_and_args[3] if len(keys_and_args) > 3 else None
+        limit = keys_and_args[4] if len(keys_and_args) > 4 else None
+        member = keys_and_args[5] if len(keys_and_args) > 5 else None
+
+        if key is None:
+            return [0, 0]
+
+        self._keys.add(key)
+        # Initialize count if not present
+        if key not in self._counts:
+            self._counts[key] = 0
+
+        # Simulate the Lua algorithm: track count and enforce limit
+        self._counts[key] = self._counts.get(key, 0) + 1
+        count = self._counts[key]
+
+        # Also store the key in fakeredis so that fake_redis.keys() works
+        try:
+            await self._redis.set(key, "1")
+        except Exception:
+            pass
+
+        if count <= limit:
+            remaining = limit - count
+            return [1, remaining]
+        return [0, 0]
+
+
 @pytest.fixture
 async def fake_redis():
     """Provide a fresh in-memory Redis bound to the test's event loop."""
-    return fakeredis.aioredis.FakeRedis(decode_responses=True)
+    redis = fakeredis.aioredis.FakeRedis(decode_responses=True)
+
+    # Patch eval to simulate the rate limiter Lua script execution
+    eval_mock = _RateLimitEvalMock(redis)
+    redis.eval = eval_mock.__call__
+
+    return redis
 
 
 def _build_app(redis_client, max_requests: int = 3) -> FastAPI:

@@ -410,7 +410,7 @@ ruff==0.16.4
     # via stratops-intel-backend (pyproject.toml)
 scikit-learn==1.9.0
     # via stratops-intel-backend (pyproject.toml)
-scipy==1.18.0
+scipy==1.15.2
     # via scikit-learn
 shellingham==1.5.4
     # via typer

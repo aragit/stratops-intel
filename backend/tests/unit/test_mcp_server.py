@@ -33,8 +33,8 @@ class TestMCPServerToolsImportable:
     """Tests that the three required MCP tools can be imported/referenced."""
 
     def test_query_knowledge_graph_exists(self) -> None:
-        """query_knowledge_graph tool should be defined in backend.mcp.server."""
-        from backend.mcp.server import mcp_server as server
+        """query_knowledge_graph tool should be defined in backend.mcp_service.server."""
+        from backend.mcp_service.server import mcp_server as server
 
         # The tool may or may not be called at import time depending on
         # decorator timing; verify the server instance exists
@@ -42,13 +42,13 @@ class TestMCPServerToolsImportable:
 
     def test_get_entity_trends_tool_exists(self) -> None:
         """get_entity_trends tool should be defined."""
-        from backend.mcp.server import mcp_server as server
+        from backend.mcp_service.server import mcp_server as server
 
         assert server is not None
 
     def test_run_sec_hybrid_retrieval_tool_exists(self) -> None:
         """run_sec_hybrid_retrieval tool should be defined."""
-        from backend.mcp.server import mcp_server as server
+        from backend.mcp_service.server import mcp_server as server
 
         assert server is not None
 
