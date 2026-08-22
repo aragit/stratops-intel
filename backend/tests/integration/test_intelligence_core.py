@@ -140,7 +140,12 @@ def mock_summarization_service():
     """Mock BentoML summarization service responses."""
     with respx.mock() as mock:
         mock.post("http://bentoml-summarization:3000/summarize").mock(
-            return_value=httpx.Response(200, json={"summaries": ["Apple reported record revenue driven by iPhone and services."]})
+            return_value=httpx.Response(
+                200,
+                json={
+                    "summaries": ["Apple reported record revenue driven by iPhone and services."]
+                },
+            )
         )
         yield mock
 
@@ -150,7 +155,19 @@ def mock_narrative_service():
     """Mock BentoML narrative service responses."""
     with respx.mock() as mock:
         mock.post("http://bentoml-narrative:3000/generate").mock(
-            return_value=httpx.Response(200, json={"narrative": "# Executive Brief\n\nApple reported record revenue of $94.8B driven by iPhone and services.\n\nKey developments:\n- iPhone 15 demand strong\n- Services revenue growing\n- Guidance conservative\n\nRecommended actions:\n- Monitor iPhone demand in China\n- Invest in AI services", "key_takeaways": ["Apple reported record $94.8B revenue", "iPhone and services driving growth", "Conservative guidance for next quarter"], "confidence": 0.85, "model": "test-model"})
+            return_value=httpx.Response(
+                200,
+                json={
+                    "narrative": "# Executive Brief\n\nApple reported record revenue of $94.8B driven by iPhone and services.\n\nKey developments:\n- iPhone 15 demand strong\n- Services revenue growing\n- Guidance conservative\n\nRecommended actions:\n- Monitor iPhone demand in China\n- Invest in AI services",
+                    "key_takeaways": [
+                        "Apple reported record $94.8B revenue",
+                        "iPhone and services driving growth",
+                        "Conservative guidance for next quarter",
+                    ],
+                    "confidence": 0.85,
+                    "model": "test-model",
+                },
+            )
         )
         yield mock
 
