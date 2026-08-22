@@ -381,7 +381,7 @@ redis==8.1.0
     # via
     #   fakeredis
     #   stratops-intel-backend (pyproject.toml)
-mcp==1.26.0
+mcp==1.28.1
     # via stratops-intel-backend (pyproject.toml)
 referencing==0.37.0
     # via
