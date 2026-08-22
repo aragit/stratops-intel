@@ -8,16 +8,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 from datetime import datetime, timedelta
 from unittest import mock
 from uuid import uuid4
 
+import httpx
 import pytest
 import respx
-from testcontainers.minio import MinioContainer
-from testcontainers.neo4j import Neo4jContainer
-from testcontainers.postgres import PostgresContainer
-from testcontainers.redis import RedisContainer
+from testcontainers.community.minio import MinioContainer
+from testcontainers.community.neo4j import Neo4jContainer
+from testcontainers.community.postgres import PostgresContainer
+from testcontainers.community.redis import RedisContainer
 
 from backend.db.neo4j_client import Neo4jClient
 from backend.intelligence.agents.anomaly import AnomalyDetectorNode
@@ -70,10 +72,10 @@ def minio_container():
         secret_key="minioadmin",
     )
     container.start()
-    # Create required buckets
-    import subprocess
-
-    url = container.get_url()
+    # Create required buckets using host/port (get_url deprecated)
+    host = container.get_container_host_ip()
+    port = container.get_exposed_port(9000)
+    url = f"http://{host}:{port}"
     subprocess.run(["mc", "alias", "set", "testminio", url, "minioadmin", "minioadmin"], check=True)
     for bucket in [
         "stratops-signals",
@@ -90,8 +92,11 @@ def minio_container():
 @pytest.fixture
 def neo4j_client(neo4j_container):
     """Neo4j client connected to test container."""
+    host = neo4j_container.get_container_host_ip()
+    port = neo4j_container.get_exposed_port(7687)
+    uri = f"bolt://{host}:{port}"
     client = Neo4jClient(
-        uri=neo4j_container.get_url(),
+        uri=uri,
         user="neo4j",
         password=neo4j_container.password,
     )
@@ -125,25 +130,7 @@ def mock_extraction_service():
     """Mock BentoML extraction service responses."""
     with respx.mock() as mock:
         mock.post("http://bentoml-extraction:3000/v1/extract").mock(
-            return_value=type(
-                "obj",
-                (object,),
-                {
-                    "status_code": 200,
-                    "json": lambda: [
-                        {
-                            "result": {
-                                "entities": [
-                                    {"company_name": "Apple Inc.", "ticker": "AAPL"},
-                                    {"name": "Tim Cook", "role": "CEO"},
-                                    {"company_name": "Microsoft", "ticker": "MSFT"},
-                                    {"name": "Satya Nadella", "role": "CEO"},
-                                ]
-                            }
-                        }
-                    ],
-                },
-            )
+            return_value=httpx.Response(200, json={"extracted": True})
         )
         yield mock
 
@@ -153,23 +140,7 @@ def mock_summarization_service():
     """Mock BentoML summarization service responses."""
     with respx.mock() as mock:
         mock.post("http://bentoml-summarization:3000/summarize").mock(
-            return_value=type(
-                "obj",
-                (object,),
-                {
-                    "status_code": 200,
-                    "json": lambda: [
-                        {
-                            "summaries": [
-                                "Apple reported record revenue driven by iPhone and services."
-                            ],
-                            "model": "test",
-                            "batch_size": 1,
-                            "total_tokens": 50,
-                        }
-                    ],
-                },
-            )
+            return_value=httpx.Response(200, json={"summaries": ["Apple reported record revenue driven by iPhone and services."]})
         )
         yield mock
 
@@ -179,23 +150,7 @@ def mock_narrative_service():
     """Mock BentoML narrative service responses."""
     with respx.mock() as mock:
         mock.post("http://bentoml-narrative:3000/generate").mock(
-            return_value=type(
-                "obj",
-                (object,),
-                {
-                    "status_code": 200,
-                    "json": lambda: {
-                        "narrative": "# Executive Brief\n\nApple reported record revenue of $94.8B driven by iPhone and services.\n\nKey developments:\n- iPhone 15 demand strong\n- Services revenue growing\n- Guidance conservative\n\nRecommended actions:\n- Monitor iPhone demand in China\n- Invest in AI services",
-                        "key_takeaways": [
-                            "Apple reported record $94.8B revenue",
-                            "iPhone and services driving growth",
-                            "Conservative guidance for next quarter",
-                        ],
-                        "confidence": 0.85,
-                        "model": "test-model",
-                    },
-                },
-            )
+            return_value=httpx.Response(200, json={"narrative": "# Executive Brief\n\nApple reported record revenue of $94.8B driven by iPhone and services.\n\nKey developments:\n- iPhone 15 demand strong\n- Services revenue growing\n- Guidance conservative\n\nRecommended actions:\n- Monitor iPhone demand in China\n- Invest in AI services", "key_takeaways": ["Apple reported record $94.8B revenue", "iPhone and services driving growth", "Conservative guidance for next quarter"], "confidence": 0.85, "model": "test-model"})
         )
         yield mock
 

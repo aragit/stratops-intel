@@ -47,6 +47,7 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.45b0",
     "opentelemetry-instrumentation-sqlalchemy>=0.45b0",
     "httpx>=0.26.0",
+    "mcp>=1.0.0",
     "networkx>=3.2.0",
     "cryptography>=42.0.0",
     "python-multipart>=0.0.9",

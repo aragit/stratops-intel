@@ -7,6 +7,7 @@ testcontainers.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from uuid import uuid4
 
@@ -230,7 +231,9 @@ class TestCrossTenantStreamIsolation:
             consumer_name="test-b",
         )
         await consumer_b.start()
-        await consumer_b._task  # type: ignore
+        # Use wait_for with timeout to prevent 60s stream hangs.
+        # Also set block_ms=100 in the consumer so it polls regularly.
+        await asyncio.wait_for(consumer_b._task, timeout=2.0)
         await consumer_b.stop()
 
         assert len(consumer_b.received_messages) == 0, (

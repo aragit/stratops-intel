@@ -8,16 +8,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
 from datetime import datetime, timedelta
 from unittest import mock
 from uuid import uuid4
 
 import pytest
 import respx
-from testcontainers.minio import MinioContainer
-from testcontainers.neo4j import Neo4jContainer
-from testcontainers.postgres import PostgresContainer
-from testcontainers.redis import RedisContainer
+from testcontainers.community.minio import MinioContainer
+from testcontainers.community.neo4j import Neo4jContainer
+from testcontainers.community.postgres import PostgresContainer
+from testcontainers.community.redis import RedisContainer
 
 from backend.alerts.router import (
     AlertRouter,
@@ -76,10 +77,10 @@ def minio_container():
         secret_key="minioadmin",
     )
     container.start()
-    # Create required buckets
-    import subprocess
-
-    url = container.get_url()
+    # Create required buckets using host/port (get_url deprecated)
+    host = container.get_container_host_ip()
+    port = container.get_exposed_port(9000)
+    url = f"http://{host}:{port}"
     subprocess.run(["mc", "alias", "set", "testminio", url, "minioadmin", "minioadmin"], check=True)
     for bucket in [
         "stratops-signals",
@@ -97,8 +98,11 @@ def minio_container():
 @pytest.fixture
 def neo4j_client(neo4j_container):
     """Neo4j client connected to test container."""
+    host = neo4j_container.get_container_host_ip()
+    port = neo4j_container.get_exposed_port(7687)
+    uri = f"bolt://{host}:{port}"
     client = Neo4jClient(
-        uri=neo4j_container.get_url(),
+        uri=uri,
         user="neo4j",
         password=neo4j_container.password,
     )
