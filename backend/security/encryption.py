@@ -111,4 +111,4 @@ class FieldEncryptor:
                 "decryption failed: authentication tag mismatch or corrupted data"
             ) from exc
 
-        return plaintext.decode("utf-8")
+        return plaintext.decode("utf-8")  # type: ignore[no-any-return]

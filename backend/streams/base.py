@@ -210,7 +210,7 @@ class StreamProducer(ABC):  # noqa: B024
                     id="*",
                     approximate=False,
                 )
-            return await pipe.execute()
+            return await pipe.execute()  # type: ignore[no-any-return]
 
         results = await _with_redis_retry(_do_publish_batch)
 

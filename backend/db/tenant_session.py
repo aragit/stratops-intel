@@ -169,7 +169,7 @@ class TenantSessionManager:
             return "disconnected"
         pool = self._engine.pool
         try:
-            return pool.status()
+            return pool.status()  # type: ignore[no-any-return]
         except (AttributeError, NotImplementedError):
             return f"pool_class={type(pool).__name__}"
 

@@ -5,7 +5,7 @@ Revises: 002
 Create Date: 2024-01-15
 """
 
-from alembic import op
+from alembic import op  # type: ignore[attr-defined]
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 

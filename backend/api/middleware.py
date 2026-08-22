@@ -165,7 +165,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         """Resolve the client IP, honouring the first forwarded hop."""
         forwarded = request.headers.get("x-forwarded-for")
         if forwarded:
-            return forwarded.split(",")[0].strip()
+            return forwarded.split(",")[0].strip()  # type: ignore[no-any-return]
         return request.client.host if request.client else "unknown"
 
     def _get_rate_limit_key(self, request: Request) -> str:

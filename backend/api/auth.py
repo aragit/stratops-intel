@@ -51,7 +51,7 @@ def create_access_token(
     to_encode.update({"exp": expire, "iat": datetime.now(UTC), "type": "access"})
     token = jwt.encode(to_encode, _SECRET_KEY, algorithm=_ALGORITHM)
     logger.debug("access_token_created", sub=data.get("sub"), expires=expire.isoformat())
-    return token
+    return token  # type: ignore[no-any-return]
 
 
 def create_refresh_token(data: dict) -> str:
@@ -68,7 +68,7 @@ def create_refresh_token(data: dict) -> str:
     to_encode.update({"exp": expire, "iat": datetime.now(UTC), "type": "refresh"})
     token = jwt.encode(to_encode, _SECRET_KEY, algorithm=_ALGORITHM)
     logger.debug("refresh_token_created", sub=data.get("sub"), expires=expire.isoformat())
-    return token
+    return token  # type: ignore[no-any-return]
 
 
 def decode_token(token: str) -> dict:
@@ -85,7 +85,7 @@ def decode_token(token: str) -> dict:
     """
     try:
         payload = jwt.decode(token, _SECRET_KEY, algorithms=[_ALGORITHM])
-        return payload
+        return payload  # type: ignore[no-any-return]
     except jwt.ExpiredSignatureError:
         logger.warning("token_expired")
         raise HTTPException(
@@ -112,7 +112,7 @@ def hash_password(password: str) -> str:
         The bcrypt hash string.
     """
     salt = bcrypt.gensalt()
-    return bcrypt.hashpw(password.encode(), salt).decode()
+    return bcrypt.hashpw(password.encode(), salt).decode()  # type: ignore[no-any-return]
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -125,7 +125,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         ``True`` if the password matches.
     """
-    return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
+    return bcrypt.checkpw(plain_password.encode(), hashed_password.encode())  # type: ignore[no-any-return]
 
 
 async def get_current_user(
